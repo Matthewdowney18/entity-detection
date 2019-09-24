@@ -128,11 +128,18 @@ class Decoder(nn.Module):
         super().__init__()
         n_position = len_max_seq + 1
 
+        self.tgt_word_emb = nn.Embedding(
+            n_tgt_vocab, d_word_vec)
+
+        self.position_enc = nn.Embedding.from_pretrained(
+            get_sinusoid_encoding_table(n_position, d_word_vec, padding_idx=0),
+            freeze=True)
+
         self.layer_stack = nn.ModuleList([
             DecoderLayer(d_model, d_inner, n_head, d_k, d_v, dropout=dropout)
             for _ in range(n_layers)])
 
-    def forward(self, tgt_seq, src_seq, enc_output, return_attns=False):
+    def forward(self, tgt_seq, tgt_pos, src_seq, enc_output, return_attns=False):
         """
         Starts by getting the imput embedding from the target seq, and pos
         encodings. Then runs the decoder.
@@ -149,20 +156,16 @@ class Decoder(nn.Module):
         dec_slf_attn_list, dec_enc_attn_list = [], []
 
         # -- Prepare masks
-        #non_pad_mask = get_non_pad_mask(tgt_seq)
+        non_pad_mask = get_non_pad_mask(tgt_seq)
 
-        #slf_attn_mask_subseq = get_subsequent_mask(tgt_seq)
-        #slf_attn_mask_keypad = get_attn_key_pad_mask(seq_k=tgt_seq, seq_q=tgt_seq)
-        #slf_attn_mask = (slf_attn_mask_keypad + slf_attn_mask_subseq).gt(0)
+        slf_attn_mask_subseq = get_subsequent_mask(tgt_seq)
+        slf_attn_mask_keypad = get_attn_key_pad_mask(seq_k=tgt_seq, seq_q=tgt_seq)
+        slf_attn_mask = (slf_attn_mask_keypad + slf_attn_mask_subseq).gt(0)
 
-        #dec_enc_attn_mask = get_attn_key_pad_mask(seq_k=src_seq, seq_q=tgt_seq)
-
-        non_pad_mask = None
-        slf_attn_mask = None
-        dec_enc_attn_mask = None
+        dec_enc_attn_mask = get_attn_key_pad_mask(seq_k=src_seq, seq_q=tgt_seq)
 
         # -- Forward
-        dec_output = tgt_seq
+        dec_output = self.tgt_word_emb(tgt_seq) + self.position_enc(tgt_pos)
 
         # Nx decoder layer
         for dec_layer in self.layer_stack:
@@ -198,7 +201,15 @@ class Transformer(nn.Module):
             n_layers=n_layers, n_head=n_head, d_k=d_k, d_v=d_v,
             dropout=dropout, pretrained_embeddings=pretrained_embeddings)
 
+        self.decoder = Decoder(
+            n_tgt_vocab=n_labels, len_max_seq=len_max_seq_enc,
+            d_word_vec=d_word_vec, d_model=d_model, d_inner=d_inner,
+            n_layers=n_layers, n_head=n_head, d_k=d_k, d_v=d_v,
+            dropout=dropout)
+
         self.tgt_label_prj = nn.Linear(d_model, n_labels, bias=False)
+        nn.init.xavier_normal_(self.tgt_label_prj.weight)
+        '''
         self.tgt_label_prj = nn.Sequential(nn.Linear(d_model, d_model+512),
                                            nn.ReLU(),
                                            nn.Linear(d_model+512, d_model),
@@ -206,7 +217,7 @@ class Transformer(nn.Module):
                                            nn.Linear(d_model, 512),
                                            nn.ReLU(),
                                            nn.Linear(512, n_labels))
-
+        '''
         assert d_model == d_word_vec, \
         'To facilitate the residual connections, \
          the dimensions of all module outputs shall be the same.'
@@ -231,8 +242,7 @@ class Transformer(nn.Module):
         tgt_seq = tgt_seq[:, :-1]
 
         enc_output, *_ = self.encoder(src_seq, src_pos, src_seg)
-
-        outputs = self.tgt_label_prj(enc_output)
-
-
+        # use src_pos for tgt_pos because they ghon be the same
+        dec_output, *_ = self.decoder(tgt_seq, src_pos[:, :-1], src_seq, enc_output)
+        outputs = self.tgt_label_prj(dec_output)
         return outputs
