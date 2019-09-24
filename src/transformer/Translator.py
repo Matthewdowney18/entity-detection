@@ -4,7 +4,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from entity_detection.src.transformer import Beam
+from src.transformer import Beam
 
 class Chatbot(object):
     ''' Load with trained model and handle the beam search '''

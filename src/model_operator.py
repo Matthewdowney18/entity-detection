@@ -7,10 +7,13 @@ import numpy as np
 import json
 import random
 from tqdm import tqdm
+import wandb
 
-from src.utils import ModelConfig, load_checkpoint, labels_2_mention_str, get_pretrained_embeddings, get_results, record_predictions
-from src.transformer.Models import Transformer
+from src.utils import load_from_file, get_pretrained_embeddings, print_config, save_config, load_checkpoint, get_results, record_predictions, labels_2_mention_str
+
 from src.transformer.Optim import ScheduledOptim
+from src.transformer.Models import Transformer
+#from pytorch_transformers.pytorch_transformers.modeling_bert import #BertForTokenClassification
 from src.dataset import DialogueDataset, Vocab
 
 class ModelOperator:
@@ -25,96 +28,93 @@ class ModelOperator:
         if not os.path.exists(os.path.join(args.experiment_dir,"runs/")):
             os.mkdir(os.path.join(args.experiment_dir,"runs/"))
 
-        # initialize tensorboard writer
-        self.runs_dir = os.path.join(args.experiment_dir,"runs/",args.run_name)
-        self.writer = SummaryWriter(self.runs_dir)
-
-        # initialize global steps
-        self.train_gs = 0
-        self.val_gs = 0
-
         # initialize model config
-        self.config = ModelConfig(args)
+        self.config = vars(args)
+
+        # initialize weights and biases
+        wandb.init(name="{}-{}".format(args.experiment_dir, args.run_name),
+                   notes=args.a_nice_note,
+                   project="coreference-detection",
+                   config=self.config,)
 
         # check if there is a model to load
         if args.old_model_dir is not None:
             self.use_old_model = True
             self.load_dir = args.old_model_dir
-            self.config.load_from_file(
-                os.path.join(self.load_dir, "config.json"))
+            load_from_file(
+                os.path.join(self.load_dir, "config.json"), self.config)
 
             # create vocab
             self.vocab = Vocab()
             self.vocab.load_from_dict(os.path.join(self.load_dir, "vocab.json"))
             self.update_vocab = False
-            self.config.min_count=1
+            self.config["min_count"]=1
         else:
             self.use_old_model = False
 
             self.vocab = None
             self.update_vocab = True
 
-        # create data sets
-        self.dataset_filename = args.dataset_filename
-
         # train
         self.train_dataset = DialogueDataset(
-            os.path.join(self.dataset_filename, "train_data.json"),
-            self.config.sentence_len,
+            os.path.join(self.config["dataset_filename"], "train_data.json"),
+            self.config["sentence_len"],
             self.vocab,
             self.update_vocab)
         self.data_loader_train = torch.utils.data.DataLoader(
-            self.train_dataset, self.config.train_batch_size, shuffle=True)
-        self.config.train_len = len(self.train_dataset)
+            self.train_dataset, self.config["train_batch_size"], shuffle=True)
+        self.config["train_len"] = len(self.train_dataset)
 
         self.vocab = self.train_dataset.vocab
 
         # eval
         self.val_dataset = DialogueDataset(
-            os.path.join(self.dataset_filename, "val_data.json"),
-            self.config.sentence_len,
+            os.path.join(self.config["dataset_filename"], "val_data.json"),
+            self.config["sentence_len"],
             self.vocab,
             self.update_vocab)
         self.data_loader_val = torch.utils.data.DataLoader(
-            self.val_dataset, self.config.val_batch_size, shuffle=True)
-        self.config.val_len = len(self.val_dataset)
+            self.val_dataset, self.config["val_batch_size"], shuffle=True)
+        self.config["val_len"] = len(self.val_dataset)
 
         # update, and save vocab
         self.vocab = self.val_dataset.vocab
         self.train_dataset.vocab = self.vocab
-        if (self.config.min_count > 1):
-            self.config.old_vocab_size = len(self.vocab)
-            self.vocab.prune_vocab(self.config.min_count)
+        if (self.config["min_count"] > 1):
+            self.config["old_vocab_size"] = len(self.vocab)
+            self.vocab.prune_vocab(self.config["min_count"])
         self.vocab.save_to_dict(os.path.join(self.output_dir, "vocab.json"))
         self.vocab_size = len(self.vocab)
-        self.config.vocab_size = self.vocab_size
+        self.config["vocab_size"] = self.vocab_size
 
         # load embeddings
-        if self.config.pretrained_embeddings_dir is None:
-            pretrained_embeddings = get_pretrained_embeddings(self.config.pretrained_embeddings_dir , self.vocab)
+        if self.config["pretrained_embeddings_dir"] is None:
+            pretrained_embeddings = utils.get_pretrained_embeddings(
+                self.config["pretrained_embeddings_dir"] , self.vocab)
         else:
             pretrained_embeddings = None
 
         # print and save the config file
-        self.config.print_config(self.writer)
-        self.config.save_config(os.path.join(self.output_dir, "config.json"))
+        print_config(self.config)
+        save_config(os.path.join(self.output_dir, "config.json"),
+                          self.config)
 
         # set device
         self.device = torch.device('cuda')
 
         # create model
         self.model = Transformer(
-            self.config.vocab_size,
-            self.config.label_len,
-            self.config.sentence_len,
-            d_word_vec=self.config.embedding_dim,
-            d_model=self.config.model_dim,
-            d_inner=self.config.inner_dim,
-            n_layers=self.config.num_layers,
-            n_head=self.config.num_heads,
-            d_k=self.config.dim_k,
-            d_v=self.config.dim_v,
-            dropout=self.config.dropout,
+            self.config["vocab_size"],
+            self.config["label_len"],
+            self.config["sentence_len"],
+            d_word_vec=self.config["embedding_dim"],
+            d_model=self.config["model_dim"],
+            d_inner=self.config["inner_dim"],
+            n_layers=self.config["num_layers"],
+            n_head=self.config["num_heads"],
+            d_k=self.config["dim_k"],
+            d_v=self.config["dim_v"],
+            dropout=self.config["dropout"],
             pretrained_embeddings=pretrained_embeddings
         ).to(self.device)
 
@@ -132,9 +132,12 @@ class ModelOperator:
 
         # create a sceduled optimizer object
         self.optimizer = ScheduledOptim(
-            self.optimizer, self.config.model_dim, self.config.warmup_steps)
+            self.optimizer, self.config["model_dim"], self.config["warmup_steps"])
 
         #self.optimizer.optimizer.to(torch.device('cpu'))
+
+        wandb.config.update(self.config)
+        wandb.watch(self.model)
 
 
     def train(self, num_epochs):
@@ -144,9 +147,6 @@ class ModelOperator:
         self.output_example(0)
 
         for epoch in range(num_epochs):
-            #self.writer.add_graph(self.model)
-            #self.writer.add_embedding(
-            #    self.model.encoder.src_word_emb.weight, global_step=epoch)
 
             epoch_metrics = dict()
 
@@ -165,48 +165,37 @@ class ModelOperator:
                 json.dump(metrics, f, indent=4)
 
             # save checkpoint
-            #TODO: fix this b
-            if epoch_metrics["val"]["avg_results"]["F1"] > metrics["highest_f1"]:
+            #if epoch_metrics["val"]["avg_results"]["F1"] > metrics["highest_f1"]:
             #if epoch_metrics["train"]["loss"] < metrics["lowest_loss"]:
-            #if epoch % 100 == 0:
+            if epoch % 5 == 0:
                 self.save_checkpoint(os.path.join(self.output_dir, "model.bin"))
                 metrics["lowest_f1"] = epoch_metrics["val"]["avg_results"]["F1"]
                 metrics["best_epoch"] = epoch
 
                 test_results = self.get_test_predictions(
-                    os.path.join(self.dataset_filename, "test_data.json"),
+                    os.path.join(self.config["dataset_filename"], "test_data.json"),
                     os.path.join(self.output_dir, "predictions{}.json".format(epoch)))
 
-            # record metrics to tensorboard
-            self.writer.add_scalar("training loss total",
-                epoch_metrics["train"]["loss"], global_step=epoch)
-            self.writer.add_scalar("val loss total",
-                epoch_metrics["val"]["loss"], global_step=epoch)
+            save_dict = dict()
+            for phase, data in epoch_metrics.items():
+                save_dict.update({"{}_loss".format(phase): data["loss"]})
+                save_dict.update({"{}_{}".format(phase, key): value for key, value in data["avg_results"].items()})
 
+            wandb.log(save_dict)
 
-            self.writer.add_scalar("training time",
-                epoch_metrics["train"]["time_taken"], global_step=epoch)
-            self.writer.add_scalar("val time",
-                epoch_metrics["val"]["time_taken"], global_step=epoch)
-
-            self.writer.add_scalars("train_results", epoch_metrics["train"]["avg_results"], global_step=epoch)
-            self.writer.add_scalars("val_results", epoch_metrics["val"]["avg_results"],
-                                    global_step=epoch)
             # output an example
             self.output_example(epoch+1)
-
-        self.writer.close()
 
     def execute_phase(self, epoch, phase):
         if phase == "train":
             self.model.train()
             dataloader = self.data_loader_train
-            batch_size = self.config.train_batch_size
+            batch_size = self.config["train_batch_size"]
             train = True
         else:
             self.model.eval()
             dataloader = self.data_loader_val
-            batch_size = self.config.val_batch_size
+            batch_size = self.config["val_batch_size"]
             train = False
 
         start = time.clock()
@@ -228,23 +217,21 @@ class ModelOperator:
             # forward
             if train:
                 self.optimizer.zero_grad()
-            pred = self.model(src_seq, src_pos, src_seg, tgt)
+            pred = self.model(src_seq, src_pos, src_seg, tgt).view(-1,
+                 self.config["label_len"])
 
-            loss = F.cross_entropy(self.prepare_pred(pred).view(-1, 2), tgt.view(-1))
+            loss = F.cross_entropy(pred, tgt.view(-1))
 
             average_loss = float(loss)
             epoch_loss.append(average_loss)
             average_epoch_loss = np.mean(epoch_loss)
 
             if train:
-                self.writer.add_scalar("train_loss",
-                    average_loss, global_step=i + epoch * self.config.train_batch_size)
-                # backward
                 loss.backward()
 
                 # update parameters
                 self.optimizer.step_and_update_lr()
-            output = torch.argmax(self.prepare_pred(pred), 3)
+            output = torch.argmax(pred, 1)
             get_results(tgt.view(-1).cpu(), output.view(-1).cpu(), results)
 
         phase_metrics["avg_results"] = {key: np.mean(value) for key, value in results.items()}
@@ -258,12 +245,12 @@ class ModelOperator:
     def get_test_predictions(self, test_filename, save_filename):
         test_dataset = DialogueDataset(
             test_filename,
-            self.config.sentence_len,
+            self.config["sentence_len"],
             self.vocab,
             False)
 
         test_data_loader = torch.utils.data.DataLoader(
-            test_dataset, self.config.val_batch_size, shuffle=True)
+            test_dataset, self.config["val_batch_size"], shuffle=True)
 
         with open(test_filename, 'r') as f:
             data = json.load(f)
@@ -287,17 +274,15 @@ class ModelOperator:
             # forward
             pred = self.model(src_seq, src_pos, src_seg, tgt)
 
-            loss = F.cross_entropy(self.prepare_pred(pred).view(-1, 2),
-                                   tgt.view(-1))
+            loss = F.cross_entropy(pred.view(-1,
+                 self.config["label_len"]), tgt.view(-1))
 
             average_loss = float(loss)
             epoch_loss.append(average_loss)
             average_epoch_loss = np.mean(epoch_loss)
 
-            output = torch.argmax(self.prepare_pred(pred), 3)
-
+            output = torch.argmax(pred, 2)
             record_predictions(output, data, ids, start_end_idx)
-
             get_results(tgt.view(-1).cpu(), output.view(-1).cpu(), results)
 
         phase_metrics["avg_results"] = {key: np.mean(value) for key, value in
@@ -311,7 +296,7 @@ class ModelOperator:
         data["results"] = phase_metrics
 
         with open(save_filename, 'w') as f:
-            json.dump(data, f)
+            json.dump(data, f, indent=2)
 
         return phase_metrics
 
@@ -336,20 +321,20 @@ class ModelOperator:
         gold = tgt_seq[:, 1:]
 
         # forward
-        pred = self.model(src_seq, src_pos, src_seg, tgt_seq)
-        output = self.prepare_pred(pred).squeeze(0)
+        pred = self.model(src_seq, src_pos, src_seg, tgt_seq).view(-1, self.config["label_len"])
 
         words = src_seq.tolist()[0]
         target_strings = labels_2_mention_str(tgt_seq.squeeze(0))
-        output_strings = labels_2_mention_str(torch.argmax(output, dim=2))
+        output_strings = labels_2_mention_str(torch.argmax(pred, dim=1))
 
         # get history text
         string = "word: output - target\n"
-
+        data = list()
         for word, t, o in zip(words, target_strings, output_strings):
             token = self.vocab.id2token[word]
             if token != "<blank>":
                 string += "[{}: {} - {}], \n".format(token, o, t)
+                data.append([token, o, t])
 
         # print
         print("\n------------------------\n")
@@ -357,18 +342,4 @@ class ModelOperator:
         print("\n------------------------\n")
 
         # add result to tensorboard
-        self.writer.add_text("example_output", string, global_step=epoch)
-        self.writer.add_histogram("example_vocab_ranking", pred, global_step=epoch)
-        self.writer.add_histogram("example_vocab_choice", output,global_step=epoch)
-
-    def prepare_pred(self, pred):
-        temp = pred
-        pred = pred.view(-1)
-        size = pred.size()
-        nullclass = torch.ones(size, dtype=pred.dtype, device=self.device)
-        nullclass -= pred
-        pred = torch.stack((nullclass, pred), 1).view(-1,
-                                                       self.config.sentence_len,
-                                                       self.config.label_len,
-                                                       2)
-        return pred
+        wandb.log({"example": wandb.Table(data=data, columns=["word", "output", "target"])})

@@ -10,57 +10,33 @@ import pickle
 from gensim.models.fasttext import FastText
 
 
-class ModelConfig:
-    def __init__(self, args):
-        self.experiment_dir = args.experiment_dir
-        self.run_name = args.run_name
-        self.old_model_dir = args.old_model_dir
-        self.pretrained_embeddings_dir = args.pretrained_embeddings_dir
+def load_from_file(filename, config):
+    with open(filename, 'r') as f:
+        old_config = json.load(f)
 
-        self.sentence_len = args.sentence_len
-        self.label_len = args.label_len
-        self.embedding_dim = args.embedding_dim
-        self.model_dim = args.model_dim
-        self.inner_dim = args.inner_dim
-        self.num_layers = args.num_layers
-        self.num_heads = args.num_heads
-        self.dim_k = args.dim_k
-        self.dim_v = args.dim_v
-        self.dropout = args.dropout
+    config["sentence_len"] = old_config["sentence_len"]
+    config["label_len"] = old_config["label_len"]
+    config["embedding_dim"] = old_config["embedding_dim"]
+    config["model_dim"] = old_config["model_dim"]
+    config["inner_dim"] = old_config["inner_dim"]
+    config["num_layers"] = old_config["num_layers"]
+    config["num_heads"] = old_config["num_heads"]
+    config["dim_k"] = old_config["dim_k"]
+    config["dim_v"] = old_config["dim_v"]
+    config["dropout"] = old_config["dropout"]
 
-        self.min_count = args.min_count
-        self.train_batch_size = args.train_batch_size
-        self.val_batch_size = args.val_batch_size
-        self.warmup_steps = args.warmup_steps
-        self.a_nice_note = args.a_nice_note
-        self.label_smoothing = args.label_smoothing
 
-    def load_from_file(self, filename):
-        with open(filename, 'r') as f:
-            config = json.load(f)
+def save_config(filename, config):
+    with open(filename, 'w') as f:
+        json.dump(config, f, indent=2)
 
-        self.sentence_len = config["sentence_len"]
-        self.label_len = config["label_len"]
-        self.embedding_dim = config["embedding_dim"]
-        self.model_dim = config["model_dim"]
-        self.inner_dim = config["inner_dim"]
-        self.num_layers = config["num_layers"]
-        self.num_heads = config["num_heads"]
-        self.dim_k = config["dim_k"]
-        self.dim_v = config["dim_v"]
-        self.dropout = config["dropout"]
 
-    def save_config(self, filename):
-        config = vars(self)
-        with open(filename, 'w') as f:
-            json.dump(config, f, indent=2)
+def print_config(config):
+    string = ""
+    for k, v in config.items():
+        string += "{}: {}\n".format(k, v)
+    print(string)
 
-    def print_config(self, writer):
-        string = ""
-        for k, v in vars(self).items():
-            string += "{}: {}\n".format(k, v)
-        print(string)
-        writer.add_text("config", string)
 
 def get_sequences_lengths(sequences, masking=0, dim=1):
     if len(sequences.size()) > 2:
@@ -296,18 +272,47 @@ def cal_loss(pred, gold, smoothing):
 
 def labels_2_mention_str(labels):
     strings = []
+    num_curr_mentions = 0
     for label in labels:
-        string = ""
-        outside = label[1:5]
-        beginning = label[5:9]
-        for o, b in zip(outside, beginning):
-            if o == 1 and b == 1:
-                string += "()"
-            elif o == 0 and b == 1:
-                string += "("
-            elif o == 1 and b == 0:
-                string += ")"
-        strings.append(string)
+        l = label.item()
+        # if it is outside, add ends to previous mafakas
+        if l == 5:
+            if num_curr_mentions > 0:
+                # remove extra * if ther is one
+                if strings[-1][-1] == '*' or strings[-1][-1] == '-':
+                    strings[-1] = strings[-1][:-1]
+                # add ends to previous string
+                strings[-1] += "*)" * num_curr_mentions
+                num_curr_mentions = 0
+            strings.append("-")
+
+        elif l > 5:
+            # find num beginnings to add
+            index = l - 5
+            if index > num_curr_mentions:
+                # add beginnings
+                num_beginnings = index - num_curr_mentions
+                strings.append("(*" * num_beginnings)
+            if index <= num_curr_mentions:
+                # add previous endings if need be
+                num_prev_endings = num_curr_mentions - index + 1
+                if strings[-1][-1] == '*' or strings[-1][-1] == '-':
+                    strings[-1] = strings[-1][:-1]
+                # add ends to previous string
+                strings[-1] += "*)" * num_prev_endings
+                strings.append("(*")
+            num_curr_mentions = index
+
+        else:
+            index = l + 1
+            if index < num_curr_mentions:
+                num_prev_endings = num_curr_mentions - index
+                if strings[-1][-1] == '*' or strings[-1][-1] == '-':
+                    strings[-1] = strings[-1][:-1]
+                # add ends to previous string
+                strings[-1] += "*)" * num_prev_endings
+            strings.append('-')
+            num_curr_mentions = index
     return strings
 
 
@@ -338,14 +343,16 @@ def get_pretrained_embeddings(filename, vocab):
 def get_results(labels, targets, results):
 
     results["accuracy"].append(accuracy_score(labels, targets))
-    results["precision"].append(precision_score(labels, targets))
-    results["recall"].append(recall_score(labels, targets))
-    results["F1"].append(f1_score(labels, targets))
+    results["precision"].append(precision_score(labels, targets, average="micro"))
+    results["recall"].append(recall_score(labels, targets, average="micro"))
+    results["F1"].append(f1_score(labels, targets, average="micro"))
 
 def record_predictions(output, data, ids, start_end_idx):
     for i, sent_id in enumerate(ids[0]):
         file_id = ids[1][i]
         start_idx = start_end_idx[0][i]
         end_idx = start_end_idx[1][i]
+        pred_strs = labels_2_mention_str(output[i])
         for j, k in enumerate(range(start_idx, end_idx)):
-            data[file_id][sent_id][j]["prediction"] = output[i, k, :].cpu().tolist()
+            data[file_id][sent_id][j]["prediction"] = output[i, k].cpu().item()
+            data[file_id][sent_id][j]["prediction_str"] = pred_strs[k]

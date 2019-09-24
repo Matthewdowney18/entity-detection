@@ -3,6 +3,22 @@ import numpy as np
 import torch.utils.data
 import json
 
+NUM_IB_LABELS = 5
+def make_targets(label):
+    if label[NUM_IB_LABELS] == 1:
+        return [0] * NUM_IB_LABELS + [1] + [0] * NUM_IB_LABELS
+
+    inside = label[:NUM_IB_LABELS]
+    if 1 in inside:
+        return inside + [0] * (NUM_IB_LABELS + 1)
+
+    b_label = [0] * NUM_IB_LABELS
+    beginning = label[NUM_IB_LABELS+1:]
+    for i, label in reversed(list(enumerate(beginning))):
+        if label != -1:
+            b_label[i] = 1
+            break
+    return [0] * (NUM_IB_LABELS + 1) + b_label
 
 def make_train_ex(inputs, targets, ids, file_sentences, file_labels, file_sent_ids, max_len, file_id):
     example_input = list()
@@ -71,7 +87,7 @@ def read_file(filename, max_len, train):
         file_sent_ids = list()
         for sentence_id, words in sentences.items():
             file_sentences.append([word['word'] for word in words])
-            file_labels.append([word['iob_labels'] for word in words])
+            file_labels.append([make_targets(word['iob_labels']) for word in words])
             file_sent_ids.append(sentence_id)
         if not file_labels:
             continue
@@ -81,6 +97,9 @@ def read_file(filename, max_len, train):
         else:
             make_val_ex(inputs, targets, ids, file_sentences, file_labels,
                           file_sent_ids, max_len, file_id)
+
+        #if len(inputs) > 10000:
+        #    break
 
     return inputs, targets, ids
 
@@ -284,7 +303,7 @@ class DialogueDataset(torch.utils.data.Dataset):
         Returns:
             r_seq: token encodings for the response
         """
-        default_label = [0,0,0,0,0,0,0,0,0]
+        default_label = [0,0,0,0,0,1,0,0,0,0,0]
 
         labels = [default_label]
         for target in targets:
@@ -296,6 +315,8 @@ class DialogueDataset(torch.utils.data.Dataset):
         needed_pads = self.max_len - len(labels)
         if needed_pads > 0:
             labels = labels + [default_label] * needed_pads
+
+        labels = [label.index(1) for label in labels]
 
         labels = np.array(labels, dtype=np.long)
 

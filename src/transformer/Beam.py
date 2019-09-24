@@ -6,7 +6,7 @@
 """
 
 import torch
-from entity_detection.src import transformer as Constants
+from src.transformer import Constants
 
 
 class Beam():
