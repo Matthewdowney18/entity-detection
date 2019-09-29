@@ -136,15 +136,15 @@ class Decoder(nn.Module):
         """
         Starts by getting the imput embedding from the target seq, and pos
         encodings. Then runs the decoder.
-        
+
         Args:
             tgt_seq: Encodings for the words in the target response
             tgt_pos: Positional encodings for the words in the target response
             src_seq: Encodings for the words in the history
-            enc_output: Output from the Encoder 
+            enc_output: Output from the Encoder
         Returns:
-            sec_output: vector outputs from decoder, one for each word in the response 
-            
+            sec_output: vector outputs from decoder, one for each word in the response
+
         """
         dec_slf_attn_list, dec_enc_attn_list = [], []
 
@@ -215,19 +215,19 @@ class Transformer(nn.Module):
     def forward(self, src_seq, src_pos, src_seg, tgt_seq):
         """
         Takes in the input features for the history and response, and returns a prediction.
-        
+
         First encodes the history, and then decodes it before mapping the output to the vocabulary
-        
+
         Args:
-            src_seq: Encodings for the words in the history 
-            src_pos: Positional encodings for the words in the history 
-            src_seg: Segment encodings for turns in the history 
-            tgt_seq: Encodings for the words in the target response 
-            tgt_pos: Positional encodings for the words in the target response 
+            src_seq: Encodings for the words in the history
+            src_pos: Positional encodings for the words in the history
+            src_seg: Segment encodings for turns in the history
+            tgt_seq: Encodings for the words in the target response
+            tgt_pos: Positional encodings for the words in the target response
         Returns:
-            Outputs: Vector of probabilities for each word in the vocabulary, for each word in the response 
+            Outputs: Vector of probabilities for each word in the vocabulary, for each word in the response
         """
-        
+
         tgt_seq = tgt_seq[:, :-1]
 
         enc_output, *_ = self.encoder(src_seq, src_pos, src_seg)

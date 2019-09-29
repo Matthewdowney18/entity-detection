@@ -351,6 +351,7 @@ def get_results(labels, targets, results):
     results["recall"].append(recall_score(labels, targets, average="micro"))
     results["F1"].append(f1_score(labels, targets, average="micro"))
 
+
 def record_predictions(output, data, ids, start_end_idx):
     for i, sent_id in enumerate(ids[0]):
         file_id = ids[1][i]

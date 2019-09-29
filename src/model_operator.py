@@ -31,8 +31,13 @@ class ModelOperator:
         # initialize model config
         self.config = vars(args)
 
+        if args.real_run:
+            run_name = "{}-{}".format(args.experiment_dir, args.run_name)
+        else:
+            run_name = None
+
         # initialize weights and biases
-        wandb.init(name="{}-{}".format(args.experiment_dir, args.run_name),
+        wandb.init(name=run_name,
                    notes=args.a_nice_note,
                    project="coreference-detection",
                    config=self.config,)
@@ -278,8 +283,10 @@ class ModelOperator:
             # forward
             pred = self.model(src_seq, src_pos, src_seg, tgt)
 
-            loss = F.cross_entropy(pred.view(-1, self.config["label_len"]),
-                                   tgt.view(-1), weight=self.weight)
+
+            loss = F.cross_entropy(pred.view(-1,
+                 self.config["label_len"]), tgt.view(-1), weight=self.weight)
+
 
             average_loss = float(loss)
             epoch_loss.append(average_loss)
