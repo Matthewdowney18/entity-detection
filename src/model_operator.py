@@ -31,8 +31,13 @@ class ModelOperator:
         # initialize model config
         self.config = vars(args)
 
+        if args.real_run:
+            run_name = "{}-{}".format(args.experiment_dir, args.run_name)
+        else:
+            run_name = None
+
         # initialize weights and biases
-        wandb.init(name="{}-{}".format(args.experiment_dir, args.run_name),
+        wandb.init(name=run_name,
                    notes=args.a_nice_note,
                    project="coreference-detection",
                    config=self.config,)
@@ -218,6 +223,8 @@ class ModelOperator:
             ids = batch[4]
             start_end_idx = batch[5]
 
+            gold = tgt[:, 1:].contiguous()
+
             # forward
             if train:
                 self.optimizer.zero_grad()
@@ -225,6 +232,7 @@ class ModelOperator:
                  self.config["label_len"])
 
             loss = F.cross_entropy(pred, tgt.view(-1), weight=self.weight)
+
 
             average_loss = float(loss)
             epoch_loss.append(average_loss)
@@ -236,7 +244,7 @@ class ModelOperator:
                 # update parameters
                 self.optimizer.step_and_update_lr()
             output = torch.argmax(pred, 1)
-            get_results(tgt.view(-1).cpu(), output.view(-1).cpu(), results)
+            get_results(gold.view(-1).cpu(), output.view(-1).cpu(), results)
 
         phase_metrics["avg_results"] = {key: np.mean(value) for key, value in results.items()}
         phase_metrics["loss"] = average_epoch_loss
@@ -275,11 +283,14 @@ class ModelOperator:
             ids = batch[4]
             start_end_idx = batch[5]
 
+            gold = tgt[:, 1:].contiguous()
+
             # forward
             pred = self.model(src_seq, src_pos, src_seg, tgt)
 
             loss = F.cross_entropy(pred.view(-1,
                  self.config["label_len"]), tgt.view(-1), weight=self.weight)
+
 
             average_loss = float(loss)
             epoch_loss.append(average_loss)
@@ -287,7 +298,7 @@ class ModelOperator:
 
             output = torch.argmax(pred, 2)
             record_predictions(output, data, ids, start_end_idx)
-            get_results(tgt.view(-1).cpu(), output.view(-1).cpu(), results)
+            get_results(gold.view(-1).cpu(), output.view(-1).cpu(), results)
 
         phase_metrics["avg_results"] = {key: np.mean(value) for key, value in
                                         results.items()}
