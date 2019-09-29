@@ -1,22 +1,23 @@
 import argparse
 
-from entity_detection.src.model_operator import ModelOperator
+from src.model_operator import ModelOperator
+#import src.
 
 def main():
     parser = argparse.ArgumentParser()
     # good arguments
     parser.add_argument("-dataset_filename",
-                        default="reformatted_data/data_8",
+                        default="reformatted_data/data_10",
                         type=str,
                         required = False,
                         help = "The input data dir. Should contain the csv for the task.")
     parser.add_argument("-experiment_dir",
-                        default="experiments/exp_2/",
+                        default="experiments/exp_3/",
                         type=str,
                         required=False,
                         help="The output data dir")
     parser.add_argument("-run_name",
-                        default="run_1/",
+                        default="run_3/",
                         type=str,
                         required=False,
                         help="The output data dir")
@@ -32,10 +33,15 @@ def main():
                         required=False,
                         help="The number of training epochs")
     parser.add_argument("-a_nice_note",
-                        default="fixed data",
+                        default="Added weights to the loss function",
                         type=str,
                         required=False,
                         help="leave a nice lil note for yourself in the future")
+    parser.add_argument("-real_run",
+                        default=True,
+                        type=bool,
+                        required=False,
+                        help="true if a real run")
 
     # dataset info
     parser.add_argument("-do_eval",
@@ -69,7 +75,7 @@ def main():
                         required=False,
                         help="The max length of the history")
     parser.add_argument("-label_len",
-                        default=9,
+                        default=11,
                         type=int,
                         required=False,
                         help="The max length of the response")
@@ -124,6 +130,11 @@ def main():
                         help="dropout probability")
 
     # optimizer specs
+    parser.add_argument("-weight",
+                        default=[0.8, 0.8, 0.8, 0.8, 0.8, 0.5, 1.0, 1.0, 1.0, 1.0, 1.0],
+                        type=list,
+                        required=False,
+                        help="The warmup steps for optimizer")
     parser.add_argument("-warmup_steps",
                         default=4000,
                         type=int,

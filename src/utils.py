@@ -305,6 +305,10 @@ def labels_2_mention_str(labels):
 
         else:
             index = l + 1
+            # ignore if there is no beginning
+            if index > num_curr_mentions:
+                strings.append('-')
+                continue
             if index < num_curr_mentions:
                 num_prev_endings = num_curr_mentions - index
                 if strings[-1][-1] == '*' or strings[-1][-1] == '-':
@@ -346,6 +350,7 @@ def get_results(labels, targets, results):
     results["precision"].append(precision_score(labels, targets, average="micro"))
     results["recall"].append(recall_score(labels, targets, average="micro"))
     results["F1"].append(f1_score(labels, targets, average="micro"))
+
 
 def record_predictions(output, data, ids, start_end_idx):
     for i, sent_id in enumerate(ids[0]):
