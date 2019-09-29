@@ -305,6 +305,10 @@ def labels_2_mention_str(labels):
 
         else:
             index = l + 1
+            # ignore if there is no beginning
+            if index > num_curr_mentions:
+                strings.append('-')
+                continue
             if index < num_curr_mentions:
                 num_prev_endings = num_curr_mentions - index
                 if strings[-1][-1] == '*' or strings[-1][-1] == '-':

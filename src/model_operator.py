@@ -135,6 +135,10 @@ class ModelOperator:
             self.optimizer, self.config["model_dim"], self.config["warmup_steps"])
 
         #self.optimizer.optimizer.to(torch.device('cpu'))
+        if self.config["weight"] is None:
+            self.weight = None
+        else:
+            self.weight = torch.Tensor(self.config["weight"]).to(self.device)
 
         wandb.config.update(self.config)
         wandb.watch(self.model)
@@ -220,7 +224,7 @@ class ModelOperator:
             pred = self.model(src_seq, src_pos, src_seg, tgt).view(-1,
                  self.config["label_len"])
 
-            loss = F.cross_entropy(pred, tgt.view(-1))
+            loss = F.cross_entropy(pred, tgt.view(-1), weight=self.weight)
 
             average_loss = float(loss)
             epoch_loss.append(average_loss)
@@ -274,8 +278,8 @@ class ModelOperator:
             # forward
             pred = self.model(src_seq, src_pos, src_seg, tgt)
 
-            loss = F.cross_entropy(pred.view(-1,
-                 self.config["label_len"]), tgt.view(-1))
+            loss = F.cross_entropy(pred.view(-1, self.config["label_len"]),
+                                   tgt.view(-1), weight=self.weight)
 
             average_loss = float(loss)
             epoch_loss.append(average_loss)
