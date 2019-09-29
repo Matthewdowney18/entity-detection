@@ -223,8 +223,6 @@ class ModelOperator:
             ids = batch[4]
             start_end_idx = batch[5]
 
-            gold = tgt[:, 1:].contiguous()
-
             # forward
             if train:
                 self.optimizer.zero_grad()
@@ -244,7 +242,7 @@ class ModelOperator:
                 # update parameters
                 self.optimizer.step_and_update_lr()
             output = torch.argmax(pred, 1)
-            get_results(gold.view(-1).cpu(), output.view(-1).cpu(), results)
+            get_results(tgt.view(-1).cpu(), output.view(-1).cpu(), results)
 
         phase_metrics["avg_results"] = {key: np.mean(value) for key, value in results.items()}
         phase_metrics["loss"] = average_epoch_loss
@@ -283,8 +281,6 @@ class ModelOperator:
             ids = batch[4]
             start_end_idx = batch[5]
 
-            gold = tgt[:, 1:].contiguous()
-
             # forward
             pred = self.model(src_seq, src_pos, src_seg, tgt)
 
@@ -298,7 +294,7 @@ class ModelOperator:
 
             output = torch.argmax(pred, 2)
             record_predictions(output, data, ids, start_end_idx)
-            get_results(gold.view(-1).cpu(), output.view(-1).cpu(), results)
+            get_results(tgt.view(-1).cpu(), output.view(-1).cpu(), results)
 
         phase_metrics["avg_results"] = {key: np.mean(value) for key, value in
                                         results.items()}
