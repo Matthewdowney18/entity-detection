@@ -17,7 +17,7 @@ def main():
                         required=False,
                         help="The output data dir")
     parser.add_argument("-run_name",
-                        default="run_3/",
+                        default="run_5/",
                         type=str,
                         required=False,
                         help="The output data dir")
@@ -38,7 +38,7 @@ def main():
                         required=False,
                         help="leave a nice lil note for yourself in the future")
     parser.add_argument("-real_run",
-                        default=True,
+                        default=False,
                         type=bool,
                         required=False,
                         help="true if a real run")
@@ -60,7 +60,7 @@ def main():
                         required=False,
                         help="The minimum amount of instances to be in vocab")
     parser.add_argument("-train_batch_size",
-                        default=200,
+                        default=100,
                         type=int,
                         required=False,
                         help="The batch size for training")
@@ -128,6 +128,16 @@ def main():
                         type=float,
                         required=False,
                         help="dropout probability")
+    parser.add_argument("-weight_decay",
+                        default=.0000001,
+                        type=float,
+                        required=False,
+                        help="weight decay")
+    parser.add_argument("-learning_rate",
+                        default=.001,
+                        type=float,
+                        required=False,
+                        help="learning rate")
 
     # optimizer specs
     parser.add_argument("-weight",

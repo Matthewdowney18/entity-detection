@@ -11,10 +11,10 @@ import wandb
 
 from src.utils import load_from_file, get_pretrained_embeddings, print_config, save_config, load_checkpoint, get_results, record_predictions, labels_2_mention_str
 
-from src.transformer.Optim import ScheduledOptim
-from src.transformer.Models import Transformer
-#from pytorch_transformers.pytorch_transformers.modeling_bert import #BertForTokenClassification
-from src.dataset import DialogueDataset, Vocab
+from pytorch_transformers import AdamW, WarmupLinearSchedule
+from pytorch_transformers import BertForTokenClassification
+
+from src.dataset import DialogueDataset
 
 class ModelOperator:
     def __init__(self, args):
@@ -49,55 +49,26 @@ class ModelOperator:
             load_from_file(
                 os.path.join(self.load_dir, "config.json"), self.config)
 
-            # create vocab
-            self.vocab = Vocab()
-            self.vocab.load_from_dict(os.path.join(self.load_dir, "vocab.json"))
-            self.update_vocab = False
-            self.config["min_count"]=1
         else:
             self.use_old_model = False
-
-            self.vocab = None
-            self.update_vocab = True
 
         # train
         self.train_dataset = DialogueDataset(
             os.path.join(self.config["dataset_filename"], "train_data.json"),
-            self.config["sentence_len"],
-            self.vocab,
-            self.update_vocab)
+            self.config["sentence_len"])
         self.data_loader_train = torch.utils.data.DataLoader(
             self.train_dataset, self.config["train_batch_size"], shuffle=True)
         self.config["train_len"] = len(self.train_dataset)
 
-        self.vocab = self.train_dataset.vocab
-
         # eval
         self.val_dataset = DialogueDataset(
             os.path.join(self.config["dataset_filename"], "val_data.json"),
-            self.config["sentence_len"],
-            self.vocab,
-            self.update_vocab)
+            self.config["sentence_len"])
         self.data_loader_val = torch.utils.data.DataLoader(
             self.val_dataset, self.config["val_batch_size"], shuffle=True)
         self.config["val_len"] = len(self.val_dataset)
 
-        # update, and save vocab
-        self.vocab = self.val_dataset.vocab
-        self.train_dataset.vocab = self.vocab
-        if (self.config["min_count"] > 1):
-            self.config["old_vocab_size"] = len(self.vocab)
-            self.vocab.prune_vocab(self.config["min_count"])
-        self.vocab.save_to_dict(os.path.join(self.output_dir, "vocab.json"))
-        self.vocab_size = len(self.vocab)
-        self.config["vocab_size"] = self.vocab_size
-
-        # load embeddings
-        if self.config["pretrained_embeddings_dir"] is None:
-            pretrained_embeddings = utils.get_pretrained_embeddings(
-                self.config["pretrained_embeddings_dir"] , self.vocab)
-        else:
-            pretrained_embeddings = None
+        self.config["vocab_size"] = self.train_dataset.tokenizer.vocab_size
 
         # print and save the config file
         print_config(self.config)
@@ -108,36 +79,28 @@ class ModelOperator:
         self.device = torch.device('cuda')
 
         # create model
-        self.model = Transformer(
-            self.config["vocab_size"],
-            self.config["label_len"],
-            self.config["sentence_len"],
-            d_word_vec=self.config["embedding_dim"],
-            d_model=self.config["model_dim"],
-            d_inner=self.config["inner_dim"],
-            n_layers=self.config["num_layers"],
-            n_head=self.config["num_heads"],
-            d_k=self.config["dim_k"],
-            d_v=self.config["dim_v"],
-            dropout=self.config["dropout"],
-            pretrained_embeddings=pretrained_embeddings
-        ).to(self.device)
+        self.model = BertForTokenClassification.from_pretrained('bert-base-uncased').to(self.device)
 
+        # Prepare optimizer and schedule (linear warmup and decay)
+        no_decay = ['bias', 'LayerNorm.weight']
         # create optimizer
-        self.optimizer = torch.optim.Adam(
-            filter(lambda x: x.requires_grad, self.model.parameters()),
-            betas=(0.9, 0.98), eps=1e-09)
+        optimizer_grouped_parameters = [
+            {'params': [p for n, p in self.model.named_parameters() if
+                        not any(nd in n for nd in no_decay)],
+             'weight_decay': self.config["weight_decay"]},
+            {'params': [p for n, p in self.model.named_parameters() if
+                        any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
+        ]
+        self.optimizer = AdamW(optimizer_grouped_parameters, lr=self.config["learning_rate"])
+        #self.scheduler = WarmupLinearSchedule(self.optimizer,
+         #                                warmup_steps=self.config["warmup_steps"],
+          #                               t_total=)
 
         # load old model, optimizer if there is one
         if self.use_old_model:
             self.model, self.optimizer = load_checkpoint(
                 os.path.join(self.load_dir, "model.bin"),
                 self.model, self.optimizer, self.device)
-
-
-        # create a sceduled optimizer object
-        self.optimizer = ScheduledOptim(
-            self.optimizer, self.config["model_dim"], self.config["warmup_steps"])
 
         #self.optimizer.optimizer.to(torch.device('cpu'))
         if self.config["weight"] is None:
@@ -217,19 +180,18 @@ class ModelOperator:
         for i, batch in enumerate(tqdm(dataloader,
                           mininterval=2, desc=phase, leave=False)):
             # prepare data
-            src_seq, src_pos, src_seg, tgt= map(
-                lambda x: x.to(self.device), batch[:4])
+            input_ids, tgt= map(
+                lambda x: x.to(self.device), batch[:2])
 
-            ids = batch[4]
-            start_end_idx = batch[5]
+            ids = batch[2]
+            start_end_idx = batch[3]
 
             # forward
             if train:
                 self.optimizer.zero_grad()
-            pred = self.model(src_seq, src_pos, src_seg, tgt).view(-1,
-                 self.config["label_len"])
+            outputs = self.model(input_ids, labels=tgt)
 
-            loss = F.cross_entropy(pred, tgt.view(-1), weight=self.weight)
+            loss, scores = outputs[:2]
 
             average_loss = float(loss)
             epoch_loss.append(average_loss)
@@ -239,9 +201,11 @@ class ModelOperator:
                 loss.backward()
 
                 # update parameters
-                self.optimizer.step_and_update_lr()
-            output = torch.argmax(pred, 1)
-            get_results(tgt.view(-1).cpu(), output.view(-1).cpu(), results)
+                self.optimizer.step()
+                #self.sceduler.ster()
+
+            pred = torch.argmax(scores.view(-1, self.config["label_len"]), 1)
+            get_results(tgt.view(-1).cpu(), pred.view(-1).cpu(), results)
 
         phase_metrics["avg_results"] = {key: np.mean(value) for key, value in results.items()}
         phase_metrics["loss"] = average_epoch_loss
@@ -274,27 +238,25 @@ class ModelOperator:
         for i, batch in enumerate(tqdm(test_data_loader,
                                        mininterval=2, desc='test', leave=False)):
             # prepare data
-            src_seq, src_pos, src_seg, tgt = map(
-                lambda x: x.to(self.device), batch[:4])
+            input_ids, tgt = map(
+                lambda x: x.to(self.device), batch[:2])
 
-            ids = batch[4]
-            start_end_idx = batch[5]
+            ids = batch[2]
+            start_end_idx = batch[3]
 
             # forward
-            pred = self.model(src_seq, src_pos, src_seg, tgt)
+            output = self.model(input_ids, tgt)
 
 
-            loss = F.cross_entropy(pred.view(-1,
-                 self.config["label_len"]), tgt.view(-1), weight=self.weight)
-
+            loss, scores = outputs[:2]
 
             average_loss = float(loss)
             epoch_loss.append(average_loss)
             average_epoch_loss = np.mean(epoch_loss)
 
-            output = torch.argmax(pred, 2)
-            record_predictions(output, data, ids, start_end_idx)
-            get_results(tgt.view(-1).cpu(), output.view(-1).cpu(), results)
+            pred = torch.argmax(scores, 2)
+            record_predictions(pred, data, ids, start_end_idx)
+            get_results(tgt.view(-1).cpu(), pred.view(-1).cpu(), results)
 
         phase_metrics["avg_results"] = {key: np.mean(value) for key, value in
                                         results.items()}
@@ -325,16 +287,16 @@ class ModelOperator:
         example = self.val_dataset[random_index]
 
         # prepare data
-        src_seq, src_pos, src_seg, tgt_seq = map(
-            lambda x: torch.from_numpy(x).to(self.device).unsqueeze(0), example[:4])
+        input_ids, tgt_seq = map(
+            lambda x: torch.from_numpy(x).to(self.device).unsqueeze(0), example[:2])
 
-        # take out first token from target for some reason
-        gold = tgt_seq[:, 1:]
 
         # forward
-        pred = self.model(src_seq, src_pos, src_seg, tgt_seq).view(-1, self.config["label_len"])
+        output = self.model(input_ids, tgt_seq)
 
-        words = src_seq.tolist()[0]
+        scores = output[1].view(-1, self.config["label_len"])
+
+        words = input_ids.tolist()[0]
         target_strings = labels_2_mention_str(tgt_seq.squeeze(0))
         output_strings = labels_2_mention_str(torch.argmax(pred, dim=1))
 
@@ -342,7 +304,7 @@ class ModelOperator:
         string = "word: output - target\n"
         data = list()
         for word, t, o in zip(words, target_strings, output_strings):
-            token = self.vocab.id2token[word]
+            token = self.train_dataset.tokenizer.convert_ids_to_tokens(word)
             if token != "<blank>":
                 string += "[{}: {} - {}], \n".format(token, o, t)
                 data.append([token, o, t])

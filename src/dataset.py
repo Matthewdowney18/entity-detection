@@ -2,6 +2,7 @@ from collections import Counter
 import numpy as np
 import torch.utils.data
 import json
+from pytorch_transformers.tokenization_bert import BertTokenizer
 
 NUM_IB_LABELS = 5
 def make_targets(label):
@@ -103,78 +104,6 @@ def read_file(filename, max_len, train):
 
     return inputs, targets, ids
 
-class Vocab(object):
-    def __init__(self, special_tokens=None):
-        super(Vocab, self).__init__()
-
-        self.nb_tokens = 0
-
-        # vocab mapping
-        self.token2id = {}
-        self.id2token = {}
-
-        self.token_counts = Counter()
-
-        self.special_tokens = []
-        if special_tokens is not None:
-            self.special_tokens = special_tokens
-            self.add_document(self.special_tokens)
-
-    # updates the vocab with an example
-    def add_document(self, document):
-        for token in document:
-            self.token_counts[token] += 1
-
-            if token not in self.token2id:
-                self.token2id[token] = self.nb_tokens
-                self.id2token[self.nb_tokens] = token
-                self.nb_tokens += 1
-
-    def add_documents(self, documents):
-        for doc in documents:
-            self.add_document(doc)
-
-    # prune the vocab that occur less than the min count
-    def prune_vocab(self, min_count=2):
-        nb_tokens_before = len(self.token2id)
-
-        tokens_to_delete = set(
-            [t for t, c in self.token_counts.items() if c < min_count])
-        tokens_to_delete -= set(self.special_tokens)
-
-        for token in tokens_to_delete:
-            self.token_counts.pop(token)
-
-        self.token2id = {t: i for i, t in enumerate(self.token_counts.keys())}
-        self.id2token = {i: t for t, i in self.token2id.items()}
-        self.nb_tokens = len(self.token2id)
-
-        print('Vocab pruned: {} -> {}'.format(nb_tokens_before, self.nb_tokens))
-
-    # load token2id from json file, useful when using pretrained model
-    def load_from_dict(self, filename):
-        with open(filename, 'r') as f:
-            self.token2id = json.load(f)
-        self.id2token = {i: t for t, i in self.token2id.items()}
-        self.nb_tokens = len(self.token2id)
-
-    # Save token2id to json file
-    def save_to_dict(self, filename):
-        with open(filename, 'w') as f:
-            json.dump(self.token2id, f)
-
-    def __getitem__(self, item):
-        return self.token2id[item]
-
-    def __contains__(self, item):
-        return item in self.token2id
-
-    def __len__(self):
-        return self.nb_tokens
-
-    def __str__(self):
-        return 'Vocab: {} tokens'.format(self.nb_tokens)
-
 
 class DialogueDataset(torch.utils.data.Dataset):
     PAD_WORD = '<blank>'
@@ -183,8 +112,7 @@ class DialogueDataset(torch.utils.data.Dataset):
     EOS_WORD = '</s>'
     CLS_WORD = '<cls>'
 
-    def __init__(self, filename, max_len, vocab=None,
-                 update_vocab=True):
+    def __init__(self, filename, max_len):
         """
         Initialize the dialogue dataset.
 
@@ -213,20 +141,7 @@ class DialogueDataset(torch.utils.data.Dataset):
 
         self.max_len = max_len
 
-        if vocab is None:
-            # Create new vocab object
-            self.vocab = Vocab(special_tokens=[DialogueDataset.PAD_WORD,
-                                               DialogueDataset.UNK_WORD,
-                                               DialogueDataset.SEP_WORD,
-                                               DialogueDataset.EOS_WORD,
-                                               DialogueDataset.CLS_WORD])
-        else:
-            self.vocab = vocab
-
-        # do not want to update vocab for running old model
-        if update_vocab:
-            for example in self.examples:
-                self.vocab.add_documents(example)
+        self.tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
 
     def _process_input(self, sentences):
         """
@@ -237,54 +152,33 @@ class DialogueDataset(torch.utils.data.Dataset):
             History: <cls> hello ! <s> hi , how are you ? </s>
             self.sentence_len = 15
 
-            h_seq = np.array([4, 34, 65, 2, 23, 44, 455, 97, 56, 10, 3, 0, 0, 0, 0])
-            h_pos = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 0, 0, 0, 0)]
-            h_seg = np.array([1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 0, 0, 0, 0)]
-
         Args:
             history: list of tokens in the history
         Returns:
-            h_seq: token encodings for the history
-            h_pos: positional encoding for the history
-            h_seg: segment encoding for the history
+            input_ids
         """
-        inputs = [DialogueDataset.CLS_WORD]
+
+        pad = self.tokenizer.pad_token_id
+        sep = self.tokenizer.sep_token_id
+        unk = self.tokenizer.unk_token_is
+        cla = self.tokenizer.cls_token_id
+
+
+        inputs = [self.tokenizer.cls_token]
         for sentence in sentences:
             inputs += sentence
-            inputs.append(DialogueDataset.SEP_WORD)
+            inputs.append(self.tokenizer.sep_token)
         inputs = inputs[:self.max_len]
-        inputs[-1] = DialogueDataset.EOS_WORD
-
 
         needed_pads = self.max_len - len(inputs)
         if needed_pads > 0:
-            inputs = inputs + [DialogueDataset.PAD_WORD] * needed_pads
+            inputs = inputs + [self.tokenizer.pad_token] * needed_pads
 
-        inputs = [
-            self.vocab[token] if token in self.vocab else self.vocab[
-                DialogueDataset.UNK_WORD]
-            for token in inputs
-        ]
+        input_ids = self.tokenizer.convert_tokens_to_ids(inputs)
 
-        # create position embeddings, make zero if it is the pad token (0)
-        h_pos = np.array([pos_i + 1 if w_i != 0 else 0
-                          for pos_i, w_i in enumerate(inputs)])
+        input_ids = np.array(input_ids, dtype=np.long)
 
-        # create segment embeddings
-        seg = list()
-        i = 1
-        for j, token in enumerate(inputs):
-            if token == self.vocab[DialogueDataset.PAD_WORD]:
-                break
-            seg.append(i)
-            if token == self.vocab[DialogueDataset.SEP_WORD]:
-                i += 1
-        seg += [0] * needed_pads
-        h_seg = np.array(seg, dtype=np.long)
-
-        h_seq = np.array(inputs, dtype=np.long)
-
-        return h_seq, h_pos, h_seg
+        return input_ids
 
     def _process_targets(self, targets):
         """
@@ -303,6 +197,7 @@ class DialogueDataset(torch.utils.data.Dataset):
         Returns:
             r_seq: token encodings for the response
         """
+
         default_label = [0,0,0,0,0,1,0,0,0,0,0]
 
         labels = [default_label]
@@ -310,7 +205,6 @@ class DialogueDataset(torch.utils.data.Dataset):
             labels += target
             labels.append(default_label)
         labels = labels[:self.max_len]
-        labels[-1] = default_label
 
         needed_pads = self.max_len - len(labels)
         if needed_pads > 0:
@@ -339,17 +233,15 @@ class DialogueDataset(torch.utils.data.Dataset):
             index: index of example in dataset
 
         Returns:
-            h_seq: token encodings for the history
-            h_pos: positional encoding for the history
-            h_seg: segment encoding for the history
+            input ids: segment encoding for the history
             r_seq: token encodings for the response
             r_pos: positional encoding for the response
         """
-        i_seq, i_pos, i_seg = self._process_input(self.examples[index])
+        input_ids = self._process_input(self.examples[index])
         labels = self._process_targets(self.targets[index])
         ids = self.ids[index]
         start_end_idx = self._get_start_end_idx(self.examples[index], ids)
-        return i_seq, i_pos, i_seg, labels, ids, start_end_idx
+        return input_ids, labels, ids, start_end_idx
 
     def __len__(self):
         return len(self.examples)
