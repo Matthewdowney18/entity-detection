@@ -12,7 +12,7 @@ import wandb
 from src.utils import load_from_file, get_pretrained_embeddings, print_config, save_config, load_checkpoint, get_results, record_predictions, labels_2_mention_str
 
 from pytorch_transformers import AdamW, WarmupLinearSchedule
-from pytorch_transformers import BertForTokenClassification
+from pytorch_transformers import BertForTokenClassification, BertConfig
 
 from src.dataset import DialogueDataset
 
@@ -78,8 +78,11 @@ class ModelOperator:
         # set device
         self.device = torch.device('cuda')
 
+        self.b_config = BertConfig.from_pretrained('bert-base-uncased')
+        self.b_config.num_labels = self.config["label_len"]
+
         # create model
-        self.model = BertForTokenClassification.from_pretrained('bert-base-uncased').to(self.device)
+        self.model = BertForTokenClassification(self.b_config).to(self.device)
 
         # Prepare optimizer and schedule (linear warmup and decay)
         no_decay = ['bias', 'LayerNorm.weight']
@@ -245,7 +248,7 @@ class ModelOperator:
             start_end_idx = batch[3]
 
             # forward
-            output = self.model(input_ids, tgt)
+            output = self.model(input_ids, labels=tgt)
 
 
             loss, scores = outputs[:2]
@@ -292,13 +295,13 @@ class ModelOperator:
 
 
         # forward
-        output = self.model(input_ids, tgt_seq)
+        output = self.model(input_ids, labels=tgt_seq)
 
         scores = output[1].view(-1, self.config["label_len"])
 
         words = input_ids.tolist()[0]
         target_strings = labels_2_mention_str(tgt_seq.squeeze(0))
-        output_strings = labels_2_mention_str(torch.argmax(pred, dim=1))
+        output_strings = labels_2_mention_str(torch.argmax(scores, dim=1))
 
         # get history text
         string = "word: output - target\n"
