@@ -2,7 +2,7 @@ import json
 import os
 
 def main():
-    filename = "experiments/exp_3/run_1/predictions65.json"
+    filename = "experiments/exp_3/run_5/predictions50.json"
 
     with open(filename, 'r') as f:
         data = json.load(f)
@@ -10,15 +10,21 @@ def main():
     target_lines = list()
     response_lines = list()
     for doc_id, sentences in data.items():
+        if doc_id == "results":
+            continue
         file_id = doc_id.split('-')[0]
         doc_num = doc_id.split('-')[1]
         header = "#begin document ({}); part {:0>3d}\n".format(file_id, int(doc_num))
         target_lines.append(header)
         response_lines.append(header)
         for sentence, words in sentences.items():
+            if "prediction_str" not in words[0]:
+                continue
             for word in words:
-                t_line = [file_id, doc_id, word["word_nb"], word["coref_str"]]
-                r_line = [file_id, doc_id, word["word_nb"], word["prediction_str"]]
+                t_line = [file_id, doc_num, str(word["word_nb"]),
+                          word["coref_str"]]
+                r_line = [file_id, doc_num, str(word["word_nb"]),
+                          word["prediction_str"].replace('*', '0')]
                 target_lines.append(" ".join(t_line) + "\n")
                 response_lines.append(" ".join(r_line) + "\n")
         target_lines.append("\n#end documents\n")
