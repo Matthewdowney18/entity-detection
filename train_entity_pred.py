@@ -12,12 +12,12 @@ def main():
                         required = False,
                         help = "The input data dir. Should contain the csv for the task.")
     parser.add_argument("-experiment_dir",
-                        default="experiments/exp_3/",
+                        default="experiments/exp_4/",
                         type=str,
                         required=False,
                         help="The output data dir")
     parser.add_argument("-run_name",
-                        default="run_5/",
+                        default="run_2/",
                         type=str,
                         required=False,
                         help="The output data dir")
@@ -33,12 +33,12 @@ def main():
                         required=False,
                         help="The number of training epochs")
     parser.add_argument("-a_nice_note",
-                        default="Added weights to the loss function",
+                        default="BERT time!!",
                         type=str,
                         required=False,
                         help="leave a nice lil note for yourself in the future")
     parser.add_argument("-real_run",
-                        default=False,
+                        default=True,
                         type=bool,
                         required=False,
                         help="true if a real run")
@@ -60,12 +60,12 @@ def main():
                         required=False,
                         help="The minimum amount of instances to be in vocab")
     parser.add_argument("-train_batch_size",
-                        default=100,
+                        default=60,
                         type=int,
                         required=False,
                         help="The batch size for training")
     parser.add_argument("-val_batch_size",
-                        default=100,
+                        default=30,
                         type=int,
                         required=False,
                         help="The batch size for training")
@@ -129,19 +129,24 @@ def main():
                         required=False,
                         help="dropout probability")
     parser.add_argument("-weight_decay",
-                        default=.0000001,
+                        default=0.0,
                         type=float,
                         required=False,
                         help="weight decay")
     parser.add_argument("-learning_rate",
-                        default=.001,
+                        default=5e-5,
                         type=float,
                         required=False,
                         help="learning rate")
+    parser.add_argument("-adam_epsilon",
+                        default=1e-8,
+                        type=float,
+                        required=False,
+                        help="max_grad_norm")
 
     # optimizer specs
     parser.add_argument("-weight",
-                        default=[0.8, 0.8, 0.8, 0.8, 0.8, 0.5, 1.0, 1.0, 1.0, 1.0, 1.0],
+                        default=None,
                         type=list,
                         required=False,
                         help="The warmup steps for optimizer")
@@ -155,6 +160,16 @@ def main():
                         type=bool,
                         required=False,
                         help="The batch size for training")
+    parser.add_argument("-gradient_accumulation_steps",
+                        default=1,
+                        type=int,
+                        required=False,
+                        help="gradient_accumulation_steps")
+    parser.add_argument("-max_grad_norm",
+                        default=1.0,
+                        type=float,
+                        required=False,
+                        help="max_grad_norm")
 
     args = parser.parse_args()
 

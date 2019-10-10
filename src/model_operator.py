@@ -2,7 +2,8 @@ import os
 import time
 import torch
 import torch.nn.functional as F
-from torch.utils.tensorboard import SummaryWriter
+
+from torch.utils.data import DataLoader, RandomSampler
 import numpy as np
 import json
 import random
@@ -56,16 +57,20 @@ class ModelOperator:
         self.train_dataset = DialogueDataset(
             os.path.join(self.config["dataset_filename"], "train_data.json"),
             self.config["sentence_len"])
-        self.data_loader_train = torch.utils.data.DataLoader(
+
+        self.data_loader_train = DataLoader(
             self.train_dataset, self.config["train_batch_size"], shuffle=True)
         self.config["train_len"] = len(self.train_dataset)
+
+        self.t_total = len(self.data_loader_train) // self.config["gradient_accumulation_steps"] * self.config["num_epoch"]
 
         # eval
         self.val_dataset = DialogueDataset(
             os.path.join(self.config["dataset_filename"], "val_data.json"),
             self.config["sentence_len"])
-        self.data_loader_val = torch.utils.data.DataLoader(
-            self.val_dataset, self.config["val_batch_size"], shuffle=True)
+
+        self.data_loader_val = DataLoader(
+            self.val_dataset, self.config["val_batch_size"], shuffle=False)
         self.config["val_len"] = len(self.val_dataset)
 
         self.config["vocab_size"] = self.train_dataset.tokenizer.vocab_size
@@ -94,10 +99,11 @@ class ModelOperator:
             {'params': [p for n, p in self.model.named_parameters() if
                         any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
         ]
-        self.optimizer = AdamW(optimizer_grouped_parameters, lr=self.config["learning_rate"])
-        #self.scheduler = WarmupLinearSchedule(self.optimizer,
-         #                                warmup_steps=self.config["warmup_steps"],
-          #                               t_total=)
+        self.optimizer = AdamW(optimizer_grouped_parameters, lr=self.config["learning_rate"],
+                                eps=self.config["adam_epsilon"])
+        self.scheduler = WarmupLinearSchedule(self.optimizer,
+                                       warmup_steps=self.config["warmup_steps"],
+                                       t_total=self.t_total)
 
         # load old model, optimizer if there is one
         if self.use_old_model:
@@ -202,10 +208,14 @@ class ModelOperator:
 
             if train:
                 loss.backward()
-
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(),
+                                               self.config["max_grad_norm"])
                 # update parameters
                 self.optimizer.step()
-                #self.sceduler.ster()
+                # update learning rate
+                self.scheduler.step()
+
+                self.model.zero_grad()
 
             pred = torch.argmax(scores.view(-1, self.config["label_len"]), 1)
             get_results(tgt.view(-1).cpu(), pred.view(-1).cpu(), results)
@@ -221,9 +231,7 @@ class ModelOperator:
     def get_test_predictions(self, test_filename, save_filename):
         test_dataset = DialogueDataset(
             test_filename,
-            self.config["sentence_len"],
-            self.vocab,
-            False)
+            self.config["sentence_len"])
 
         test_data_loader = torch.utils.data.DataLoader(
             test_dataset, self.config["val_batch_size"], shuffle=True)
@@ -251,7 +259,7 @@ class ModelOperator:
             output = self.model(input_ids, labels=tgt)
 
 
-            loss, scores = outputs[:2]
+            loss, scores = output[:2]
 
             average_loss = float(loss)
             epoch_loss.append(average_loss)
@@ -281,7 +289,7 @@ class ModelOperator:
     def save_checkpoint(self, filename):
         state = {
             'model': self.model.state_dict(),
-            'optimizer': self.optimizer.optimizer.state_dict()
+            'optimizer': self.optimizer.state_dict()
         }
         torch.save(state, filename)
 
