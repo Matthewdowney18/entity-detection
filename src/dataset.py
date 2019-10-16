@@ -4,64 +4,99 @@ import torch.utils.data
 import json
 
 NUM_IB_LABELS = 5
-def make_targets(label):
-    if label[NUM_IB_LABELS] == 1:
-        return [0] * NUM_IB_LABELS + [1] + [0] * NUM_IB_LABELS
+WINDOW_SIZE = 6
 
-    inside = label[:NUM_IB_LABELS]
-    if 1 in inside:
-        return inside + [0] * (NUM_IB_LABELS + 1)
+def get_target(example_labels, i, j):
+    start_label = example_labels[i]
+    end_label = example_labels[i+j]
 
-    b_label = [0] * NUM_IB_LABELS
-    beginning = label[NUM_IB_LABELS+1:]
-    for i, label in reversed(list(enumerate(beginning))):
-        if label != -1:
-            b_label[i] = 1
-            break
-    return [0] * (NUM_IB_LABELS + 1) + b_label
+    if start_label.find("(") == -1 or end_label.find(")") == -1:
+        return 0
+
+    start_mentions = set([mention.strip(["(", ")"]) for mention in start_label.split("|")])
+    end_mentions = set([mention.strip(["(", ")"]) for mention in end_label.split("|")])
+
+    if start_mentions & end_mentions:
+        return 1
+    else:
+        return 0
+
+
+def make_window_ex(target_sentence_idx, example_sentences, example_labels):
+    inputs = list()
+    targets = list()
+
+    #()
+    for i, _ in enumerate(example_sentences[target_sentence_idx][:-6]):
+        for j in range(WINDOW_SIZE):
+            inputs.append()
+            targets.append(get_target(example_labels[target_sentence_idx], i, j))
+
+    return inputs, targets
+
 
 def make_train_ex(inputs, targets, ids, file_sentences, file_labels, file_sent_ids, max_len, file_id):
-    example_input = list()
-    example_target = list()
+    example_sentences = list()
+    example_labels = list()
     example_id = list()
     for sentence, label, id in zip(file_sentences, file_labels, file_sent_ids):
-        example_input.append(sentence)
-        example_target.append(label)
+        example_sentences.append(sentence)
+        example_labels.append(label)
         example_id.append(id)
         while True:
-            length = sum([len(i) + 1 for i in example_input]) + 2
+            # add 2 for beginning and end tokens, and
+            length = sum([len(i) + 1 for i in example_sentences]) + 2 + 2
             # next one on
             if length > max_len:
                 # delete first sentence
-                example_input = example_input[1:]
-                example_target = example_target[1:]
+                example_sentences = example_sentences[1:]
+                example_labels = example_labels[1:]
                 example_id = example_id[1:]
             else:
                 break
-            # append last node
-        inputs.append(example_input)
-        targets.append(example_target)
-        ids.append((example_id, file_id))
+
+        if len(example_labels) == 1:
+            continue
+
+        ex_inputs, ex_targets = make_window_ex(1, example_sentences, example_labels)
+
+        inputs += ex_inputs
+        targets += ex_targets
+        ids += (example_id, file_id)*len(ex_inputs)
 
 
 def make_val_ex(inputs, targets, ids, file_sentences, file_labels, file_sent_ids, max_len, file_id):
+    # first one
     if len(file_sentences[0]) + 2 < max_len:
-        inputs.append(file_sentences[0:2])
-        targets.append(file_labels[0:2])
-        ids.append((file_sent_ids[0], file_id))
+        example_sentences = file_sentences[0:2]
+        example_labels = file_labels[0:2]
+        ex_inputs, ex_targets = make_window_ex(0, example_sentences, example_labels)
+
+        inputs += ex_inputs
+        targets += ex_targets
+        ids += [(file_sent_ids[0], file_id)*len(ex_inputs)]
 
     for i in range(1, len(file_sentences)-1):
         if len(file_sentences[i])+2 > max_len:
             continue
         num_extra = (len(file_sentences[i]) + len(file_sentences[i-1]) + 3) - max_len
         if num_extra > 0:
-            inputs.append([file_sentences[i - 1][num_extra:], file_sentences[i]])
-            targets.append([file_labels[i - 1][num_extra:], file_labels[i]])
-            ids.append((file_sent_ids[i], file_id))
+            example_sentences = [file_sentences[i - 1][num_extra:], file_sentences[i]]
+            example_labels = [file_labels[i - 1][num_extra:], file_labels[i]]
+            ex_inputs, ex_targets = make_window_ex(1, example_sentences,
+                                                   example_labels)
+            inputs += ex_inputs
+            targets += ex_targets
+            ids += [(file_sent_ids[0], file_id) * len(ex_inputs)]
+
         else:
-            inputs.append(file_sentences[i-1:i+2])
-            targets.append(file_labels[i-1:i+2])
-            ids.append((file_sent_ids[i], file_id))
+            example_sentences = file_sentences[i-1:i+2]
+            example_labels = file_labels[i-1:i+2]
+            ex_inputs, ex_targets = make_window_ex(1, example_sentences,
+                                                   example_labels)
+            inputs += ex_inputs
+            targets += ex_targets
+            ids += [(file_sent_ids[0], file_id) * len(ex_inputs)]
 
 
 # get history, respinse data from csv file
@@ -87,7 +122,7 @@ def read_file(filename, max_len, train):
         file_sent_ids = list()
         for sentence_id, words in sentences.items():
             file_sentences.append([word['word'] for word in words])
-            file_labels.append([make_targets(word['iob_labels']) for word in words])
+            file_labels.append([word["coref_str"] for word in words])
             file_sent_ids.append(sentence_id)
         if not file_labels:
             continue
@@ -183,7 +218,7 @@ class DialogueDataset(torch.utils.data.Dataset):
     EOS_WORD = '</s>'
     CLS_WORD = '<cls>'
 
-    def __init__(self, filename, max_len, vocab=None,
+    def __init__(self, filename, max_len, window_size, vocab=None,
                  update_vocab=True):
         """
         Initialize the dialogue dataset.
@@ -203,6 +238,8 @@ class DialogueDataset(torch.utils.data.Dataset):
             update_vocab: Set to false to not update the vocab with the new
                 examples
         """
+        WINDOW_SIZE = window_size
+
         if filename.find("train") != -1:
             self.train = True
         else:
