@@ -8,13 +8,13 @@ WINDOW_SIZE = 6
 
 def get_target(example_labels, i, j):
     start_label = example_labels[i]
-    end_label = example_labels[i+j]
+    end_label = example_labels[i+j-1]
 
     if start_label.find("(") == -1 or end_label.find(")") == -1:
         return 0
 
-    start_mentions = set([mention.strip(["(", ")"]) for mention in start_label.split("|")])
-    end_mentions = set([mention.strip(["(", ")"]) for mention in end_label.split("|")])
+    start_mentions = set([mention.strip("(").strip(")") for mention in start_label.split("|")])
+    end_mentions = set([mention.strip("(").strip(")") for mention in end_label.split("|")])
 
     if start_mentions & end_mentions:
         return 1
@@ -22,81 +22,47 @@ def get_target(example_labels, i, j):
         return 0
 
 
-def make_window_ex(target_sentence_idx, example_sentences, example_labels):
-    inputs = list()
+def make_window_ex(example_sentences, example_labels):
+    windows = list()
     targets = list()
 
-    #()
-    for i, _ in enumerate(example_sentences[target_sentence_idx][:-6]):
-        for j in range(WINDOW_SIZE):
-            inputs.append()
-            targets.append(get_target(example_labels[target_sentence_idx], i, j))
-
-    return inputs, targets
-
-
-def make_train_ex(inputs, targets, ids, file_sentences, file_labels, file_sent_ids, max_len, file_id):
-    example_sentences = list()
-    example_labels = list()
-    example_id = list()
-    for sentence, label, id in zip(file_sentences, file_labels, file_sent_ids):
-        example_sentences.append(sentence)
-        example_labels.append(label)
-        example_id.append(id)
-        while True:
-            # add 2 for beginning and end tokens, and
-            length = sum([len(i) + 1 for i in example_sentences]) + 2 + 2
-            # next one on
-            if length > max_len:
-                # delete first sentence
-                example_sentences = example_sentences[1:]
-                example_labels = example_labels[1:]
-                example_id = example_id[1:]
-            else:
+    #inputs for window: (start_idx, window size)
+    for i, _ in enumerate(example_sentences):
+        for j in range(1, WINDOW_SIZE+1):
+            if i + j > len(example_sentences):
                 break
+            windows.append((i, j))
+            targets.append(get_target(example_labels, i, j))
 
-        if len(example_labels) == 1:
-            continue
+    return windows, targets
 
-        ex_inputs, ex_targets = make_window_ex(1, example_sentences, example_labels)
 
-        inputs += ex_inputs
+def make_train_ex(inputs, windows, targets, ids, file_sentences, file_labels, file_sent_ids, max_len, file_id):
+    for sentence, label, id in zip(file_sentences, file_labels, file_sent_ids):
+        ex_windows, ex_targets = make_window_ex(sentence, label)
+
+        ex_id = "{}:{}".format(id, file_id)
+
+        windows += ex_windows
         targets += ex_targets
-        ids += (example_id, file_id)*len(ex_inputs)
+        ids += [ex_id]*len(ex_windows)
+        inputs[ex_id] = sentence
 
 
-def make_val_ex(inputs, targets, ids, file_sentences, file_labels, file_sent_ids, max_len, file_id):
-    # first one
-    if len(file_sentences[0]) + 2 < max_len:
-        example_sentences = file_sentences[0:2]
-        example_labels = file_labels[0:2]
-        ex_inputs, ex_targets = make_window_ex(0, example_sentences, example_labels)
+def make_val_ex(inputs, windows, targets, ids, file_sentences, file_labels, file_sent_ids, max_len, file_id):
 
-        inputs += ex_inputs
-        targets += ex_targets
-        ids += [(file_sent_ids[0], file_id)*len(ex_inputs)]
-
-    for i in range(1, len(file_sentences)-1):
+    for i in range(len(file_sentences)-1):
         if len(file_sentences[i])+2 > max_len:
             continue
-        num_extra = (len(file_sentences[i]) + len(file_sentences[i-1]) + 3) - max_len
-        if num_extra > 0:
-            example_sentences = [file_sentences[i - 1][num_extra:], file_sentences[i]]
-            example_labels = [file_labels[i - 1][num_extra:], file_labels[i]]
-            ex_inputs, ex_targets = make_window_ex(1, example_sentences,
-                                                   example_labels)
-            inputs += ex_inputs
-            targets += ex_targets
-            ids += [(file_sent_ids[0], file_id) * len(ex_inputs)]
-
         else:
-            example_sentences = file_sentences[i-1:i+2]
-            example_labels = file_labels[i-1:i+2]
-            ex_inputs, ex_targets = make_window_ex(1, example_sentences,
-                                                   example_labels)
-            inputs += ex_inputs
+            ex_windows, ex_targets = make_window_ex(file_sentences[i],
+                                                   file_labels[i])
+            ex_id = "{}:{}".format(file_sent_ids[i], file_id)
+
+            windows += ex_windows
             targets += ex_targets
-            ids += [(file_sent_ids[0], file_id) * len(ex_inputs)]
+            ids += [ex_id] * len(ex_windows)
+            inputs[ex_id] = file_sentences[i]
 
 
 # get history, respinse data from csv file
@@ -109,9 +75,10 @@ def read_file(filename, max_len, train):
     i = 1
     #train = True
 
-    inputs = list()
-    targets = list()
-    ids = list()
+    inputs = dict()     # A dict of the sentence id in ids to sentence
+    windows = list()    # list of tuples for the windows (start_idx, size)
+    targets = list()    # wether or not the window is a true mention
+    ids = list()        # a list of ids for sentences for each window, target
 
     with open(filename, 'r') as fp:
         data = json.load(fp)
@@ -122,21 +89,21 @@ def read_file(filename, max_len, train):
         file_sent_ids = list()
         for sentence_id, words in sentences.items():
             file_sentences.append([word['word'] for word in words])
-            file_labels.append([word["coref_str"] for word in words])
+            file_labels.append([word["coref"] for word in words])
             file_sent_ids.append(sentence_id)
         if not file_labels:
             continue
 
         if train:
-            make_train_ex(inputs, targets, ids, file_sentences, file_labels, file_sent_ids, max_len, file_id)
+            make_train_ex(inputs, windows, targets, ids, file_sentences, file_labels, file_sent_ids, max_len, file_id)
         else:
-            make_val_ex(inputs, targets, ids, file_sentences, file_labels,
+            make_val_ex(inputs, windows, targets, ids, file_sentences, file_labels,
                           file_sent_ids, max_len, file_id)
 
         #if len(inputs) > 10000:
         #    break
 
-    return inputs, targets, ids
+    return inputs, windows, targets, ids
 
 class Vocab(object):
     def __init__(self, special_tokens=None):
@@ -212,6 +179,8 @@ class Vocab(object):
 
 
 class DialogueDataset(torch.utils.data.Dataset):
+    START = "<START>"
+    END = "<END>"
     PAD_WORD = '<blank>'
     UNK_WORD = '<unk>'
     SEP_WORD = '<s>'
@@ -246,13 +215,15 @@ class DialogueDataset(torch.utils.data.Dataset):
             self.train = False
 
         if filename is not None:
-            self.examples, self.targets, self.ids = read_file(filename, max_len, self.train)
+            self.inputs, self.windows, self.targets, self.ids = read_file(filename, max_len, self.train)
 
         self.max_len = max_len
 
         if vocab is None:
             # Create new vocab object
-            self.vocab = Vocab(special_tokens=[DialogueDataset.PAD_WORD,
+            self.vocab = Vocab(special_tokens=[DialogueDataset.START,
+                                               DialogueDataset.END,
+                                               DialogueDataset.PAD_WORD,
                                                DialogueDataset.UNK_WORD,
                                                DialogueDataset.SEP_WORD,
                                                DialogueDataset.EOS_WORD,
@@ -262,10 +233,10 @@ class DialogueDataset(torch.utils.data.Dataset):
 
         # do not want to update vocab for running old model
         if update_vocab:
-            for example in self.examples:
+            for example in self.inputs.values():
                 self.vocab.add_documents(example)
 
-    def _process_input(self, sentences):
+    def _process_input(self, window, id):
         """
         creates token encodings for the word embeddings, positional encodings,
         and segment encodings for the dialogue history
@@ -286,12 +257,12 @@ class DialogueDataset(torch.utils.data.Dataset):
             h_seg: segment encoding for the history
         """
         inputs = [DialogueDataset.CLS_WORD]
-        for sentence in sentences:
-            inputs += sentence
-            inputs.append(DialogueDataset.SEP_WORD)
-        inputs = inputs[:self.max_len]
+        inputs+= self.inputs[id]
+        inputs = inputs[:self.max_len-2]
         inputs[-1] = DialogueDataset.EOS_WORD
 
+        inputs.insert(window[0]+1, DialogueDataset.START)
+        inputs.insert(window[0]+window[1] + 2, DialogueDataset.END)
 
         needed_pads = self.max_len - len(inputs)
         if needed_pads > 0:
@@ -382,11 +353,11 @@ class DialogueDataset(torch.utils.data.Dataset):
             r_seq: token encodings for the response
             r_pos: positional encoding for the response
         """
-        i_seq, i_pos, i_seg = self._process_input(self.examples[index])
-        labels = self._process_targets(self.targets[index])
-        ids = self.ids[index]
-        start_end_idx = self._get_start_end_idx(self.examples[index], ids)
-        return i_seq, i_pos, i_seg, labels, ids, start_end_idx
+        i_seq, i_pos, i_seg = self._process_input(self.windows[index], self.ids[index])
+        label = np.array(self.targets[index], dtype=np.long)
+        id = self.ids[index]
+        #start_end_idx = self._get_start_end_idx(self.examples[index], ids)
+        return i_seq, i_pos, i_seg, label, id, self.windows[index]
 
     def __len__(self):
-        return len(self.examples)
+        return len(self.ids)

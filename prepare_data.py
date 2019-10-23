@@ -187,7 +187,8 @@ def create_dict_from_df(df):
                 'iob_labels': labels,
                 'inside_ids': inside_ids,
                 'num_inside': num_inside,
-                'o_b_ids': o_b_ids}
+                'o_b_ids': o_b_ids,
+                'coref': row['coref']}
         sentence.append(word)
         start = False
     return data
@@ -309,13 +310,13 @@ def save_data(all_data, args, meta_data):
     test_data = {key: all_data[key] for key in keys[-int(.1 * len(keys)):]}
 
     with open(os.path.join(args.output_dir, "train_data.json"), 'w') as f:
-        json.dump(train_data, f)
+        json.dump(train_data, f, indent=2)
 
     with open(os.path.join(args.output_dir, "val_data.json"), 'w') as f:
-        json.dump(val_data, f)
+        json.dump(val_data, f, indent=2)
 
     with open(os.path.join(args.output_dir, "test_data.json"), 'w') as f:
-        json.dump(test_data, f)
+        json.dump(test_data, f, indent=2)
 
     with open(os.path.join(args.output_dir, "metadata.json"), 'w') as f:
         json.dump(meta_data, f, indent=4)
@@ -330,7 +331,7 @@ def main():
                         required=False,
                         help="The input data dir. Should contain the conll files for the task.")
     parser.add_argument("-output_dir",
-                        default="reformatted_data/data_8",
+                        default="reformatted_data/data_11",
                         type=str,
                         required=False,
                         help="The output data dir.")
@@ -381,7 +382,7 @@ def main():
     save_data(all_data, args, meta_data)
 
     with open(os.path.join(args.output_dir, "all_data.json"), 'w') as f:
-        json.dump(all_data, f)
+        json.dump(all_data, f, indent=2)
 
 
 

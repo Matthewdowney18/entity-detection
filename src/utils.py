@@ -352,12 +352,46 @@ def get_results(labels, targets, results):
     results["F1"].append(f1_score(labels, targets, average="micro"))
 
 
-def record_predictions(output, data, ids, start_end_idx):
-    for i, sent_id in enumerate(ids[0]):
-        file_id = ids[1][i]
-        start_idx = start_end_idx[0][i]
-        end_idx = start_end_idx[1][i]
-        pred_strs = labels_2_mention_str(output[i])
-        for j, k in enumerate(range(start_idx, end_idx)):
-            data[file_id][sent_id][j]["prediction"] = output[i, k].cpu().item()
-            data[file_id][sent_id][j]["prediction_str"] = pred_strs[k]
+def init_pred(data):
+    for sentences in data.values():
+        for words in sentences.values():
+            for word in words:
+                word["prediction_str"] = "-"
+
+def record_predictions(output, data, ids, window):
+    for i, id in enumerate(ids):
+        if output[i] == 0:
+            continue
+
+        file_id = id.split(":")[1]
+        sent_id = id.split(":")[0]
+
+        # make a case for when the window size is 1
+        if window[1][i] == 1:
+            pred_str = data[file_id][sent_id][window[0][i]]["prediction_str"]
+            if pred_str == "-":
+               pred_str = "(0)"
+            else:
+                if pred_str.find("("):
+                    pred_str = pred_str + "|(0)"
+                else:
+                    pred_str = "(0)|" + pred_str
+            data[file_id][sent_id][window[0][i]]["prediction_str"] = pred_str
+            continue
+
+
+        # get the first prediction str
+        pred_str = data[file_id][sent_id][window[0][i]]["prediction_str"]
+        if pred_str == "-":
+            pred_str = "(0"
+        else:
+            pred_str = "(0|" + pred_str
+        data[file_id][sent_id][window[0][i]]["prediction_str"] = pred_str
+
+        # get the second prediction str
+        pred_str = data[file_id][sent_id][window[0][i] + window[1][i] - 1]["prediction_str"]
+        if pred_str == "-":
+            pred_str = "0)"
+        else:
+            pred_str = pred_str + "|0)"
+        data[file_id][sent_id][window[0][i] + window[1][i] - 1]["prediction_str"] = pred_str

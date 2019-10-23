@@ -198,7 +198,7 @@ class Transformer(nn.Module):
             n_layers=n_layers, n_head=n_head, d_k=d_k, d_v=d_v,
             dropout=dropout, pretrained_embeddings=pretrained_embeddings)
 
-        self.tgt_label_prj = nn.Linear(d_model, n_labels, bias=False)
+
         self.tgt_label_prj = nn.Sequential(nn.Linear(d_model, d_model+512),
                                            nn.ReLU(),
                                            nn.Linear(d_model+512, d_model),
@@ -206,6 +206,7 @@ class Transformer(nn.Module):
                                            nn.Linear(d_model, 512),
                                            nn.ReLU(),
                                            nn.Linear(512, n_labels))
+        self.tgt_label_prj = nn.Linear(d_model, n_labels, bias=False)
 
         assert d_model == d_word_vec, \
         'To facilitate the residual connections, \
@@ -228,11 +229,10 @@ class Transformer(nn.Module):
             Outputs: Vector of probabilities for each word in the vocabulary, for each word in the response
         """
 
-        tgt_seq = tgt_seq[:, :-1]
 
         enc_output, *_ = self.encoder(src_seq, src_pos, src_seg)
 
-        outputs = self.tgt_label_prj(enc_output)
+        outputs = self.tgt_label_prj(enc_output[:, 0, :])
 
 
         return outputs

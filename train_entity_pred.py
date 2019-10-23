@@ -7,17 +7,17 @@ def main():
     parser = argparse.ArgumentParser()
     # good arguments
     parser.add_argument("-dataset_filename",
-                        default="reformatted_data/data_10",
+                        default="reformatted_data/data_11",
                         type=str,
                         required = False,
                         help = "The input data dir. Should contain the csv for the task.")
     parser.add_argument("-experiment_dir",
-                        default="experiments/exp_3/",
+                        default="experiments/exp_5/",
                         type=str,
                         required=False,
                         help="The output data dir")
     parser.add_argument("-run_name",
-                        default="run_3/",
+                        default="run_1/",
                         type=str,
                         required=False,
                         help="The output data dir")
@@ -33,12 +33,12 @@ def main():
                         required=False,
                         help="The number of training epochs")
     parser.add_argument("-a_nice_note",
-                        default="Added weights to the loss function",
+                        default="using windows now",
                         type=str,
                         required=False,
                         help="leave a nice lil note for yourself in the future")
     parser.add_argument("-real_run",
-                        default=True,
+                        default=False,
                         type=bool,
                         required=False,
                         help="true if a real run")
@@ -60,7 +60,7 @@ def main():
                         required=False,
                         help="The minimum amount of instances to be in vocab")
     parser.add_argument("-train_batch_size",
-                        default=200,
+                        default=600,
                         type=int,
                         required=False,
                         help="The batch size for training")
@@ -70,36 +70,36 @@ def main():
                         required=False,
                         help="The batch size for training")
     parser.add_argument("-sentence_len",
-                        default=100,
+                        default=50,
                         type=int,
                         required=False,
                         help="The max length of the history")
-    parser.add_argument("-label_len",
-                        default=11,
+    parser.add_argument("-window_size",
+                        default=6,
                         type=int,
                         required=False,
                         help="The max length of the response")
 
     # transformer specs
     parser.add_argument("-pretrained_embeddings_dir",
-                        default="/home/mattd/embeddings/conll_3/reddit.bin",
+                        default="/home/mattd/embeddings/conll_3/reddit2.bin",
                         #default=None,
                         type=str,
                         required=False,
                         help="use pretrained embeddings")
     parser.add_argument("-embedding_dim",
-                        default=1024,
+                        default=1,
                         type=int,
                         required=False,
                         help="The embeddings dim will be ignored if pretrained"
                         "embeddings dir is not none")
     parser.add_argument("-model_dim",
-                        default=1024,
+                        default=1,
                         type=int,
                         required=False,
                         help="The hidden layer dimension")
     parser.add_argument("-inner_dim",
-                        default=2048,
+                        default=1024,
                         type=int,
                         required=False,
                         help="The inner dim")
@@ -131,7 +131,7 @@ def main():
 
     # optimizer specs
     parser.add_argument("-weight",
-                        default=[0.8, 0.8, 0.8, 0.8, 0.8, 0.5, 1.0, 1.0, 1.0, 1.0, 1.0],
+                        default=[0.8, 1.0],
                         type=list,
                         required=False,
                         help="The warmup steps for optimizer")

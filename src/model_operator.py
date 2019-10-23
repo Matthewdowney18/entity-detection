@@ -9,7 +9,7 @@ import random
 from tqdm import tqdm
 import wandb
 
-from src.utils import load_from_file, get_pretrained_embeddings, print_config, save_config, load_checkpoint, get_results, record_predictions, labels_2_mention_str
+from src.utils import load_from_file, get_pretrained_embeddings, print_config, save_config, load_checkpoint, get_results, record_predictions, labels_2_mention_str, init_pred
 
 from src.transformer.Optim import ScheduledOptim
 from src.transformer.Models import Transformer
@@ -30,6 +30,8 @@ class ModelOperator:
 
         # initialize model config
         self.config = vars(args)
+
+        self.config["label_len"]=2
 
         if args.real_run:
             run_name = "{}-{}".format(args.experiment_dir, args.run_name)
@@ -64,6 +66,7 @@ class ModelOperator:
         self.train_dataset = DialogueDataset(
             os.path.join(self.config["dataset_filename"], "train_data.json"),
             self.config["sentence_len"],
+            self.config["window_size"],
             self.vocab,
             self.update_vocab)
         self.data_loader_train = torch.utils.data.DataLoader(
@@ -76,6 +79,7 @@ class ModelOperator:
         self.val_dataset = DialogueDataset(
             os.path.join(self.config["dataset_filename"], "val_data.json"),
             self.config["sentence_len"],
+            self.config["window_size"],
             self.vocab,
             self.update_vocab)
         self.data_loader_val = torch.utils.data.DataLoader(
@@ -93,8 +97,8 @@ class ModelOperator:
         self.config["vocab_size"] = self.vocab_size
 
         # load embeddings
-        if self.config["pretrained_embeddings_dir"] is None:
-            pretrained_embeddings = utils.get_pretrained_embeddings(
+        if self.config["pretrained_embeddings_dir"] is not None:
+            pretrained_embeddings = get_pretrained_embeddings(
                 self.config["pretrained_embeddings_dir"] , self.vocab)
         else:
             pretrained_embeddings = None
@@ -153,7 +157,7 @@ class ModelOperator:
         metrics = {"best_epoch":0, "highest_f1":0}
 
         # output an example
-        self.output_example(0)
+        # self.output_example(0
 
         for epoch in range(num_epochs):
 
@@ -221,7 +225,6 @@ class ModelOperator:
                 lambda x: x.to(self.device), batch[:4])
 
             ids = batch[4]
-            start_end_idx = batch[5]
 
             # forward
             if train:
@@ -255,6 +258,7 @@ class ModelOperator:
         test_dataset = DialogueDataset(
             test_filename,
             self.config["sentence_len"],
+            self.config["window_size"],
             self.vocab,
             False)
 
@@ -263,6 +267,8 @@ class ModelOperator:
 
         with open(test_filename, 'r') as f:
             data = json.load(f)
+
+        init_pred(data)
 
         start = time.clock()
         phase_metrics = dict()
@@ -278,22 +284,21 @@ class ModelOperator:
                 lambda x: x.to(self.device), batch[:4])
 
             ids = batch[4]
-            start_end_idx = batch[5]
+            windows = batch[5]
 
             # forward
             pred = self.model(src_seq, src_pos, src_seg, tgt)
 
-
             loss = F.cross_entropy(pred.view(-1,
                  self.config["label_len"]), tgt.view(-1), weight=self.weight)
-
 
             average_loss = float(loss)
             epoch_loss.append(average_loss)
             average_epoch_loss = np.mean(epoch_loss)
 
-            output = torch.argmax(pred, 2)
-            record_predictions(output, data, ids, start_end_idx)
+            output = torch.argmax(pred, 1)
+
+            record_predictions(output, data, ids, windows)
             get_results(tgt.view(-1).cpu(), output.view(-1).cpu(), results)
 
         phase_metrics["avg_results"] = {key: np.mean(value) for key, value in
@@ -325,14 +330,14 @@ class ModelOperator:
         example = self.val_dataset[random_index]
 
         # prepare data
-        src_seq, src_pos, src_seg, tgt_seq = map(
+        src_seq, src_pos, src_seg, tgt = map(
             lambda x: torch.from_numpy(x).to(self.device).unsqueeze(0), example[:4])
 
         # take out first token from target for some reason
-        gold = tgt_seq[:, 1:]
+        gold = tgt
 
         # forward
-        pred = self.model(src_seq, src_pos, src_seg, tgt_seq).view(-1, self.config["label_len"])
+        pred = self.model(src_seq, src_pos, src_seg, tgt).view(-1, self.config["label_len"])
 
         words = src_seq.tolist()[0]
         target_strings = labels_2_mention_str(tgt_seq.squeeze(0))
