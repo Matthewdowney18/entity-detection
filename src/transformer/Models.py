@@ -228,8 +228,6 @@ class Transformer(nn.Module):
             Outputs: Vector of probabilities for each word in the vocabulary, for each word in the response
         """
 
-        tgt_seq = tgt_seq[:, :-1]
-
         enc_output, *_ = self.encoder(src_seq, src_pos, src_seg)
 
         outputs = self.tgt_label_prj(enc_output)

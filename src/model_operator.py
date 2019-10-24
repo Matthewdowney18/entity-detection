@@ -93,8 +93,8 @@ class ModelOperator:
         self.config["vocab_size"] = self.vocab_size
 
         # load embeddings
-        if self.config["pretrained_embeddings_dir"] is None:
-            pretrained_embeddings = utils.get_pretrained_embeddings(
+        if self.config["pretrained_embeddings_dir"] is not None:
+            pretrained_embeddings = get_pretrained_embeddings(
                 self.config["pretrained_embeddings_dir"] , self.vocab)
         else:
             pretrained_embeddings = None

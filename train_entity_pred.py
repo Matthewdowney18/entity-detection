@@ -7,7 +7,7 @@ def main():
     parser = argparse.ArgumentParser()
     # good arguments
     parser.add_argument("-dataset_filename",
-                        default="reformatted_data/data_10",
+                        default="reformatted_data/data_11",
                         type=str,
                         required = False,
                         help = "The input data dir. Should contain the csv for the task.")
@@ -17,7 +17,7 @@ def main():
                         required=False,
                         help="The output data dir")
     parser.add_argument("-run_name",
-                        default="run_3/",
+                        default="run_5/",
                         type=str,
                         required=False,
                         help="The output data dir")
@@ -82,7 +82,7 @@ def main():
 
     # transformer specs
     parser.add_argument("-pretrained_embeddings_dir",
-                        default="/home/mattd/embeddings/conll_3/reddit.bin",
+                        default="/home/mattd/embeddings/conll_3/reddit_1024.bin",
                         #default=None,
                         type=str,
                         required=False,
