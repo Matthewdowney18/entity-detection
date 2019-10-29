@@ -2,6 +2,7 @@ from collections import Counter
 import numpy as np
 import torch.utils.data
 import json
+from src.utils import mention_str_2_labels
 
 NUM_IB_LABELS = 5
 def make_targets(label):
@@ -87,7 +88,7 @@ def read_file(filename, max_len, train):
         file_sent_ids = list()
         for sentence_id, words in sentences.items():
             file_sentences.append([word['word'] for word in words])
-            file_labels.append([make_targets(word['iob_labels']) for word in words])
+            file_labels.append(mention_str_2_labels([word['coref'] for word in words], NUM_IB_LABELS))
             file_sent_ids.append(sentence_id)
         if not file_labels:
             continue

@@ -12,12 +12,12 @@ def main():
                         required = False,
                         help = "The input data dir. Should contain the csv for the task.")
     parser.add_argument("-experiment_dir",
-                        default="experiments/exp_3/",
+                        default="experiments/exp_6/",
                         type=str,
                         required=False,
                         help="The output data dir")
     parser.add_argument("-run_name",
-                        default="run_5/",
+                        default="run_1/",
                         type=str,
                         required=False,
                         help="The output data dir")
@@ -33,7 +33,7 @@ def main():
                         required=False,
                         help="The number of training epochs")
     parser.add_argument("-a_nice_note",
-                        default="Added weights to the loss function",
+                        default="this one actually has embeddings",
                         type=str,
                         required=False,
                         help="leave a nice lil note for yourself in the future")

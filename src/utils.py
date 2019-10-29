@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 from torch.autograd import Variable
+import re
 import os
 import json
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
@@ -268,6 +269,51 @@ def cal_loss(pred, gold, smoothing):
         loss = F.cross_entropy(pred, gold, ignore_index=entity_detection.src.transformer.Constants.PAD, reduction='mean')
 
     return loss
+
+
+def mention_str_2_labels(strings, num_labels):
+    labels = []
+    num_curr_mentions = 0
+    for string in strings:
+        label = [0] * (num_labels * 2 + 1)
+        is_beginning = False
+        is_also_end = False
+        # split string into boundaries
+        mention_strings = string.split('|')
+        # if there are no mentions, inside label = num curr mentions, continue
+        if mention_strings[0] == "-":
+            if num_curr_mentions != 0:
+                label[num_curr_mentions-1] = 1
+            else:
+                label[num_labels] = 1
+            labels.append(label)
+            continue
+
+        for mention_string in mention_strings:
+            # if there is a beginning, add to num_curr mentions
+            # and then set the label
+            if re.search('\(\d+', mention_string):
+                is_beginning = True
+                num_curr_mentions += 1
+                if re.search('\d\)+', mention_string):
+                    is_also_end = True
+
+        if is_beginning:
+            label[num_labels + num_curr_mentions] = 1
+        else:
+            label[num_curr_mentions-1] = 1
+
+        #if is_also_end:
+        #    num_curr_mentions -= 1
+
+        labels.append(label)
+
+        for mention_string in mention_strings:
+            # if there is an end, subtract from num curr mentions
+            if re.search('\d+\)', mention_string):
+                num_curr_mentions -= 1
+
+    return labels
 
 
 def labels_2_mention_str(labels):
