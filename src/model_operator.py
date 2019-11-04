@@ -197,7 +197,7 @@ class ModelOperator:
             wandb.log(save_dict)
 
             # output an example
-            self.output_example(epoch+1)
+            #self.output_example(epoch+1)
 
     def execute_phase(self, epoch, phase):
         if phase == "train":
@@ -297,6 +297,8 @@ class ModelOperator:
             average_epoch_loss = np.mean(epoch_loss)
 
             output = torch.argmax(pred, 1)
+
+            print(output.data.cpu().numpy())
 
             record_predictions(output, data, ids, windows)
             get_results(tgt.view(-1).cpu(), output.view(-1).cpu(), results)

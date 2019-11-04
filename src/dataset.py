@@ -2,9 +2,33 @@ from collections import Counter
 import numpy as np
 import torch.utils.data
 import json
+import random
 
 NUM_IB_LABELS = 5
 WINDOW_SIZE = 6
+
+
+def downsample(windows, targets, ids, ratio=5):
+    # seperate_pos, nex examples
+
+    neg = [[window, target, id] for window, target, id in
+           zip(windows, targets, ids) if target == 0]
+
+    pos = [[window, target, id] for window, target, id in
+           zip(windows, targets, ids) if target == 1]
+
+    print("init num pos: {}\nnum neg: {}".format(len(pos), len(neg)))
+
+    random.shuffle(neg)
+
+    neg = neg[:len(pos)*ratio]
+
+    final_data = pos + neg
+
+    return [row[0] for row in final_data], \
+           [row[1] for row in final_data], \
+           [row[2] for row in final_data]
+
 
 def get_target(example_labels, i, j):
     start_label = example_labels[i]
@@ -215,7 +239,12 @@ class DialogueDataset(torch.utils.data.Dataset):
             self.train = False
 
         if filename is not None:
-            self.inputs, self.windows, self.targets, self.ids = read_file(filename, max_len, self.train)
+            self.inputs, self.windows, self.targets, self.ids = read_file(
+                filename, max_len, self.train)
+
+        if self.train:
+            self.windows, self.targets, self.ids = downsample(
+                self.windows, self.targets, self.ids)
 
         self.max_len = max_len
 
@@ -260,8 +289,10 @@ class DialogueDataset(torch.utils.data.Dataset):
         inputs+= self.inputs[id]
         inputs = inputs[:self.max_len-2]
         inputs[-1] = DialogueDataset.EOS_WORD
-
+        # add 1 to account for cls token that was added
         inputs.insert(window[0]+1, DialogueDataset.START)
+        # add 2 to account for cls, and start
+        # the window is 1:6 so it should work out
         inputs.insert(window[0]+window[1] + 2, DialogueDataset.END)
 
         needed_pads = self.max_len - len(inputs)
@@ -284,9 +315,11 @@ class DialogueDataset(torch.utils.data.Dataset):
         for j, token in enumerate(inputs):
             if token == self.vocab[DialogueDataset.PAD_WORD]:
                 break
-            seg.append(i)
-            if token == self.vocab[DialogueDataset.SEP_WORD]:
+            if token == self.vocab[DialogueDataset.START]:
                 i += 1
+            seg.append(i)
+            if token == self.vocab[DialogueDataset.END]:
+                i -= 1
         seg += [0] * needed_pads
         h_seg = np.array(seg, dtype=np.long)
 

@@ -17,7 +17,7 @@ def main():
                         required=False,
                         help="The output data dir")
     parser.add_argument("-run_name",
-                        default="run_1/",
+                        default="run_7/",
                         type=str,
                         required=False,
                         help="The output data dir")
@@ -33,12 +33,13 @@ def main():
                         required=False,
                         help="The number of training epochs")
     parser.add_argument("-a_nice_note",
-                        default="using windows now",
+                        default="changed segment embeddings for the window, using"
+                        "bigger embeddings",
                         type=str,
                         required=False,
                         help="leave a nice lil note for yourself in the future")
     parser.add_argument("-real_run",
-                        default=False,
+                        default=True,
                         type=bool,
                         required=False,
                         help="true if a real run")
@@ -82,24 +83,24 @@ def main():
 
     # transformer specs
     parser.add_argument("-pretrained_embeddings_dir",
-                        default="/home/mattd/embeddings/conll_3/reddit2.bin",
+                        default="/home/mattd/embeddings/conll_3/reddit_1024.bin",
                         #default=None,
                         type=str,
                         required=False,
                         help="use pretrained embeddings")
     parser.add_argument("-embedding_dim",
-                        default=1,
+                        default=1024,
                         type=int,
                         required=False,
                         help="The embeddings dim will be ignored if pretrained"
                         "embeddings dir is not none")
     parser.add_argument("-model_dim",
-                        default=1,
+                        default=1024,
                         type=int,
                         required=False,
                         help="The hidden layer dimension")
     parser.add_argument("-inner_dim",
-                        default=1024,
+                        default=2048,
                         type=int,
                         required=False,
                         help="The inner dim")
@@ -131,7 +132,7 @@ def main():
 
     # optimizer specs
     parser.add_argument("-weight",
-                        default=[0.8, 1.0],
+                        default=[1.0, 1.0],
                         type=list,
                         required=False,
                         help="The warmup steps for optimizer")

@@ -75,7 +75,7 @@ class Encoder(nn.Module):
             get_sinusoid_encoding_table(n_position, d_word_vec, padding_idx=0),
             freeze=True)
 
-        self.segment_enc = nn.Embedding(int(n_position/2), d_word_vec, padding_idx=0)
+        self.segment_enc = nn.Embedding(3, d_word_vec, padding_idx=0)
 
         self.layer_stack = nn.ModuleList([
             EncoderLayer(d_model, d_inner, n_head, d_k, d_v, dropout=dropout)
