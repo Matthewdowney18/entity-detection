@@ -25,6 +25,8 @@ def downsample(windows, targets, ids, ratio=5):
 
     final_data = pos + neg
 
+    random.shuffle(final_data)
+
     return [row[0] for row in final_data], \
            [row[1] for row in final_data], \
            [row[2] for row in final_data]
@@ -50,43 +52,34 @@ def make_window_ex(example_sentences, example_labels):
     windows = list()
     targets = list()
 
-    #inputs for window: (start_idx, window size)
+    # inputs for window: (start_idx, window size)
+    # for each starting token, and window size (every possible window)
+    # (0) is window size 1, and it goes up to window size 6
     for i, _ in enumerate(example_sentences):
         for j in range(1, WINDOW_SIZE+1):
             if i + j > len(example_sentences):
                 break
+            # add the window
             windows.append((i, j))
+            # add the label for that window
             targets.append(get_target(example_labels, i, j))
 
     return windows, targets
 
 
-def make_train_ex(inputs, windows, targets, ids, file_sentences, file_labels, file_sent_ids, max_len, file_id):
+def make_ex(inputs, windows, targets, ids, file_sentences, file_labels, file_sent_ids, file_id):
+    # for each sentence in file, make examples for it
     for sentence, label, id in zip(file_sentences, file_labels, file_sent_ids):
         ex_windows, ex_targets = make_window_ex(sentence, label)
 
         ex_id = "{}:{}".format(id, file_id)
 
+        # add windows, targets, and ex_ids
         windows += ex_windows
         targets += ex_targets
         ids += [ex_id]*len(ex_windows)
+        # add input sentence to mapping with ex_id
         inputs[ex_id] = sentence
-
-
-def make_val_ex(inputs, windows, targets, ids, file_sentences, file_labels, file_sent_ids, max_len, file_id):
-
-    for i in range(len(file_sentences)-1):
-        if len(file_sentences[i])+2 > max_len:
-            continue
-        else:
-            ex_windows, ex_targets = make_window_ex(file_sentences[i],
-                                                   file_labels[i])
-            ex_id = "{}:{}".format(file_sent_ids[i], file_id)
-
-            windows += ex_windows
-            targets += ex_targets
-            ids += [ex_id] * len(ex_windows)
-            inputs[ex_id] = file_sentences[i]
 
 
 # get history, respinse data from csv file
@@ -96,8 +89,6 @@ def read_file(filename, max_len, train):
      labels for each word for each sentence. Create examples that a list of multiple
      sentences,3
     """
-    i = 1
-    #train = True
 
     inputs = dict()     # A dict of the sentence id in ids to sentence
     windows = list()    # list of tuples for the windows (start_idx, size)
@@ -112,20 +103,16 @@ def read_file(filename, max_len, train):
         file_labels = list()
         file_sent_ids = list()
         for sentence_id, words in sentences.items():
-            file_sentences.append([word['word'] for word in words])
-            file_labels.append([word["coref"] for word in words])
+            # use up to max len -4 to account for cls, eos, and window tokens
+            file_sentences.append([word['word'] for word in words[:max_len-4]])
+            file_labels.append([word["coref"] for word in words[:max_len-4]])
             file_sent_ids.append(sentence_id)
         if not file_labels:
             continue
 
-        if train:
-            make_train_ex(inputs, windows, targets, ids, file_sentences, file_labels, file_sent_ids, max_len, file_id)
-        else:
-            make_val_ex(inputs, windows, targets, ids, file_sentences, file_labels,
-                          file_sent_ids, max_len, file_id)
-
-        #if len(inputs) > 10000:
-        #    break
+        # create_examples
+        make_ex(inputs, windows, targets, ids, file_sentences,
+                file_labels, file_sent_ids, file_id)
 
     return inputs, windows, targets, ids
 
@@ -310,6 +297,7 @@ class DialogueDataset(torch.utils.data.Dataset):
                           for pos_i, w_i in enumerate(inputs)])
 
         # create segment embeddings
+        # 1 for not inside window, 2 for inside window, 0 for padding
         seg = list()
         i = 1
         for j, token in enumerate(inputs):
@@ -327,50 +315,6 @@ class DialogueDataset(torch.utils.data.Dataset):
 
         return h_seq, h_pos, h_seg
 
-    def _process_targets(self, targets):
-        """
-        creates token encodings for the word embeddings, and positional
-            encodings for the response
-
-        Examples:
-            Response:  <cls> i am good , thank you ! </s>
-            self.response_len = 10
-
-            r_seq = np.array([4, 43, 52, 77, 9, 65, 93, 5,  3, 0])
-            r_pos = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 0,)]
-
-        Args:
-            response: list of tokens in the response
-        Returns:
-            r_seq: token encodings for the response
-        """
-        default_label = [0,0,0,0,0,1,0,0,0,0,0]
-
-        labels = [default_label]
-        for target in targets:
-            labels += target
-            labels.append(default_label)
-        labels = labels[:self.max_len]
-        labels[-1] = default_label
-
-        needed_pads = self.max_len - len(labels)
-        if needed_pads > 0:
-            labels = labels + [default_label] * needed_pads
-
-        labels = [label.index(1) for label in labels]
-
-        labels = np.array(labels, dtype=np.long)
-
-        return labels
-
-    def _get_start_end_idx(self, example, ids):
-        if self.train is True:
-            return (0,0)
-
-        if ids[0] == '0':
-            return 1, 1+len(example[0])
-
-        return 2+len(example[0]), 2 + len(example[0]) + len(example[1])
 
     def __getitem__(self, index):
         """
@@ -389,7 +333,6 @@ class DialogueDataset(torch.utils.data.Dataset):
         i_seq, i_pos, i_seg = self._process_input(self.windows[index], self.ids[index])
         label = np.array(self.targets[index], dtype=np.long)
         id = self.ids[index]
-        #start_end_idx = self._get_start_end_idx(self.examples[index], ids)
         return i_seq, i_pos, i_seg, label, id, self.windows[index]
 
     def __len__(self):

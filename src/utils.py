@@ -368,10 +368,13 @@ def record_predictions(output, data, ids, window):
 
         # make a case for when the window size is 1
         if window[1][i] == 1:
+            # get current prediction strings
             pred_str = data[file_id][sent_id][window[0][i]]["prediction_str"]
+            # if its empty, make it (0)
             if pred_str == "-":
                pred_str = "(0)"
             else:
+                # add on either side of current prediction strings
                 if pred_str.find("("):
                     pred_str = pred_str + "|(0)"
                 else:
@@ -379,17 +382,18 @@ def record_predictions(output, data, ids, window):
             data[file_id][sent_id][window[0][i]]["prediction_str"] = pred_str
             continue
 
-
-        # get the first prediction str
+        # get the first prediction str for the start of the window
         pred_str = data[file_id][sent_id][window[0][i]]["prediction_str"]
+        # if its empty make it (0, otherwise add to beginning of strings
         if pred_str == "-":
             pred_str = "(0"
         else:
             pred_str = "(0|" + pred_str
         data[file_id][sent_id][window[0][i]]["prediction_str"] = pred_str
 
-        # get the second prediction str
+        # get the second prediction str for the end of the window
         pred_str = data[file_id][sent_id][window[0][i] + window[1][i] - 1]["prediction_str"]
+        # if its empty make it 0), otherwise add to end of strings
         if pred_str == "-":
             pred_str = "0)"
         else:
